@@ -1,4 +1,7 @@
-# capm_pipeline.py — Vectorized CAPM computation
+# ============================================================
+# s02_main.py — Vectorized CAPM computation + Robust Data Fetch
+# ============================================================
+
 import os
 import numpy as np
 import pandas as pd
@@ -21,11 +24,14 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ====================== Helpers ===========================
+
 def chunks(lst, n):
+    """Yield successive n-sized chunks from list."""
     for i in range(0, len(lst), n):
         yield lst[i:i+n]
 
 def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Force DataFrame to numeric with datetime index."""
     out = df.copy()
     out.index = pd.to_datetime(out.index, errors="coerce")
     out = out[~out.index.isna()]
@@ -34,30 +40,40 @@ def coerce_numeric_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_index()
 
 def read_csv_smart(path: str) -> pd.DataFrame:
-    raw = pd.read_csv(path)
-    if raw.shape[1] == 1:
-        df = pd.read_csv(path, index_col=0)
-        return coerce_numeric_df(df)
-    cols_lower = [c.lower() for c in raw.columns]
-    if "date" in cols_lower:
-        date_col = raw.columns[cols_lower.index("date")]
-    else:
-        date_col = None
-        for c in raw.columns:
-            parsed = pd.to_datetime(raw[c], errors="coerce")
-            if parsed.notna().sum() >= max(5, int(0.8 * len(parsed))):
-                date_col = c
-                break
-        if date_col is None:
-            date_col = raw.columns[0]
-    df = raw.set_index(date_col)
-    return coerce_numeric_df(df)
+    """
+    Read a CSV file, automatically cleaning messy headers like
+    'Price,MKT' / 'Ticker,^GSPC' / 'Date,' style.
+    """
+    import pandas as pd
+    
+    # Read normally first
+    df = pd.read_csv(path)
+    
+    # Detect nonstandard headers (like Yahoo or Excel exports)
+    if "Date" not in df.columns and df.iloc[0, 0].lower() in ["ticker", "price"]:
+        # Skip first two metadata rows
+        df = pd.read_csv(path, skiprows=2)
+    
+    # Normalize headers
+    df.columns = [c.strip() for c in df.columns]
+    
+    # Parse dates
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.set_index("Date")
+    
+    # Coerce numeric columns
+    for c in df.columns:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    
+    return df.dropna(how="all")
 
 def save_clean_csv(df: pd.DataFrame, path: str, index_label: str = "Date"):
     df = coerce_numeric_df(df)
     df.to_csv(path, index=True, index_label=index_label)
 
 def load_or_download_csv(filename: str, download_func) -> pd.DataFrame:
+    """Load cached CSV if valid, otherwise download anew."""
     path = os.path.join(DATA_DIR, filename)
     if os.path.exists(path):
         print(f"✅ Using cached file: {filename}")
@@ -77,6 +93,7 @@ def load_or_download_csv(filename: str, download_func) -> pd.DataFrame:
     return read_csv_smart(path)
 
 def to_month_period_last(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert to month-end frequency (last value each month)."""
     tmp = df.copy()
     tmp["__P"] = tmp.index.to_period("M")
     tmp = tmp.groupby("__P").last()
@@ -84,33 +101,87 @@ def to_month_period_last(df: pd.DataFrame) -> pd.DataFrame:
     return tmp
 
 # =================== Download / Prepare Data =====================
-# 1) Market
-mkt_df = load_or_download_csv(
-    "market_adj_close.csv",
-    lambda: yf.download(BENCHMARK, start=START, end=END, interval=INTERVAL, progress=False)[["Adj Close"]].rename(columns={"Adj Close": "MKT"})
-)
-mkt = mkt_df["MKT"].dropna()
 
-# 2) Risk-free rate
+# 1) Market Benchmark (^GSPC)
+def fetch_market():
+    df = yf.download(
+        BENCHMARK, start=START, end=END, interval=INTERVAL,
+        progress=False, auto_adjust=False
+    )
+    # Handle both single and MultiIndex column structures
+    if isinstance(df.columns, pd.MultiIndex):
+        if ("Adj Close", BENCHMARK) in df.columns:
+            s = df[("Adj Close", BENCHMARK)]
+        elif ("Close", BENCHMARK) in df.columns:
+            s = df[("Close", BENCHMARK)]
+        else:
+            raise KeyError(f"Could not find 'Adj Close' or 'Close' for {BENCHMARK} in {df.columns}")
+    else:
+        if "Adj Close" in df.columns:
+            s = df["Adj Close"]
+        elif "Close" in df.columns:
+            s = df["Close"]
+        else:
+            raise KeyError(f"Could not find 'Adj Close' or 'Close' columns in {df.columns}")
+
+    return s.to_frame(name="MKT")
+    
+mkt_df = load_or_download_csv("market_adj_close.csv", fetch_market)
+mkt = mkt_df["MKT"].dropna()
+# 2) Risk-Free Rate (^IRX)
 rf_daily_path = os.path.join(DATA_DIR, "rf_irx_daily.csv")
+
+def fetch_rf():
+    df = yf.download(RF_SYMBOL, start=START, end=END, interval="1d", progress=False)
+    if df.empty or all(c not in df.columns for c in ["Adj Close", "Close"]):
+        print("⚠️ ^IRX unavailable, falling back to ^FVX (5-year yield).")
+        df = yf.download("^FVX", start=START, end=END, interval="1d", progress=False)
+    col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    return df[[col]].rename(columns={col: "RF"})
+
 if os.path.exists(rf_daily_path):
     print("✅ Using cached file: rf_irx_daily.csv")
     rf_daily = read_csv_smart(rf_daily_path)
 else:
     print("⬇️ Downloading daily ^IRX...")
-    rf_daily = yf.download(RF_SYMBOL, start=START, end=END, interval="1d", progress=False)[["Adj Close"]].rename(columns={"Adj Close": "RF"})
+    rf_daily = fetch_rf()
     save_clean_csv(rf_daily, rf_daily_path)
 
-rf_yield_pct = rf_daily["RF"].dropna().resample("ME").last()   # % annualized
+if rf_daily.empty:
+    raise ValueError("❌ Risk-free rate data is empty.")
+
+# --- Compute monthly risk-free yields ---
+rf_obj = rf_daily["RF"]
+if isinstance(rf_obj, pd.DataFrame):
+    rf_obj = rf_obj.squeeze()  # convert to Series if single column
+
+rf_yield_pct = rf_obj.dropna().resample("ME").last()
+if isinstance(rf_yield_pct, pd.DataFrame):
+    rf_yield_pct = rf_yield_pct.squeeze()  # ensure Series
+
+# Effective monthly risk-free rate
 rf_monthly = ((1 + rf_yield_pct / 100.0) ** (1/12)) - 1.0
 rf_monthly.name = "RFm"
 rf_monthly.index = rf_monthly.index.to_period("M").to_timestamp("M")
 
+# Save both versions
 save_clean_csv(rf_yield_pct.to_frame(name="RF_yield_pct"), os.path.join(DATA_DIR, "rf_irx_yield_monthly.csv"))
 save_clean_csv(rf_monthly.to_frame(name="RFm"), os.path.join(DATA_DIR, "rf_irx_monthly.csv"))
 print("💾 Saved effective monthly RF rate → Data/rf_irx_monthly.csv")
 
-# 3) S&P 500 prices
+# 3) S&P 500 Stock Prices
+def fetch_prices(block):
+    df = yf.download(block, start=START, end=END, interval=INTERVAL, progress=False)
+    if isinstance(df, pd.Series):
+        df = df.to_frame()
+    if isinstance(df.columns, pd.MultiIndex):
+        df = df["Adj Close"] if "Adj Close" in df.columns.levels[0] else df["Close"]
+    elif "Adj Close" in df.columns:
+        df = df["Adj Close"]
+    elif "Close" in df.columns:
+        df = df["Close"]
+    return df
+
 prices_path = os.path.join(DATA_DIR, "sp500_adj_close.csv")
 if os.path.exists(prices_path):
     print(f"✅ Using cached S&P 500 prices: {prices_path}")
@@ -119,10 +190,7 @@ else:
     print("⬇️ Downloading S&P 500 stock prices (batched)...")
     frames = []
     for block in chunks(TICKERS, BATCH_SZ):
-        df = yf.download(block, start=START, end=END, interval=INTERVAL, progress=False)["Adj Close"]
-        if isinstance(df, pd.Series):
-            df = df.to_frame()
-        frames.append(df)
+        frames.append(fetch_prices(block))
     prices = pd.concat(frames, axis=1)
     save_clean_csv(prices, prices_path)
     print(f"💾 Saved all prices to {prices_path}")
@@ -167,36 +235,28 @@ excess_rets.to_csv(os.path.join(OUTPUT_DIR, "sp500_excess_logreturns_monthly_202
 # =================== Vectorized CAPM Computation ===================
 print("\n📈 Computing betas and alphas (vectorized)...")
 
-# --- Ensure matching DatetimeIndex for alignment ---
 if isinstance(mkt_excess.index, pd.PeriodIndex):
     mkt_excess.index = mkt_excess.index.to_timestamp("M")
 if isinstance(excess_rets.index, pd.PeriodIndex):
     excess_rets.index = excess_rets.index.to_timestamp("M")
 
 var_m = float(mkt_excess.var(ddof=1))
-
-# Drop tickers with too few valid months
 valid_mask = excess_rets.count() >= 6
 excess_rets = excess_rets.loc[:, valid_mask]
 
-# Demean and align
 ri_centered = excess_rets - excess_rets.mean()
 mx_centered = mkt_excess - mkt_excess.mean()
 mx_centered = mx_centered.reindex(excess_rets.index)
 
-# Covariance and Beta
 covs = (ri_centered.mul(mx_centered.values, axis=0)).sum(axis=0) / (len(mx_centered) - 1)
 betas = covs / var_m
 
-# Alpha (monthly and annual)
 alpha_m = excess_rets.mean() - betas * mkt_excess.mean()
 alpha_annual = (1 + alpha_m) ** 12 - 1
 
-# Correlation & R²
 corrs = excess_rets.corrwith(mkt_excess)
 r2 = corrs ** 2
 
-# Combine results
 results = pd.DataFrame({
     "Symbol": excess_rets.columns,
     "Beta": betas,
