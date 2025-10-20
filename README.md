@@ -10,8 +10,8 @@ It estimates factor loadings (β coefficients), constructs a **beta-neutral port
 Make sure you have Python **3.10+** and `pip` installed.
 
 ```bash
-git clone https://github.com/MOREL-Lukas/DSAP-Project
-cd DSAP-Project
+git clone https://github.com/MOREL-Lukas/DSAP-Project/Before_Running
+cd DSAP-Project/Before_Running
 pip install -r requirements.txt
 ```
 ---
