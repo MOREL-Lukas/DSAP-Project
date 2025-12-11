@@ -7,12 +7,13 @@ It estimates β coefficients using machine learning, constructs a **beta-neutral
 
 ## ⚙️ Installation
 
-Make sure you have Python **3.10+** and `pip` installed.
+Recreate the environment using **conda**.
 
 ```bash
-git clone https://github.com/MOREL-Lukas/DSAP-Project/Before_Running
-cd DSAP-Project/Before_Running
-pip install -r requirements.txt
+git clone https://github.com/MOREL-Lukas/DSAP-Project
+cd DSAP-Project
+conda env create -f environment.yml
+conda activate DSAP-Project
 ```
 ---
 
