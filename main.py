@@ -214,7 +214,32 @@ def main():
         lambda_hml=0.2,      # heavy shrinkage of ML HML signal
         min_obs=36
     )
-    
+    # ========== STEP 8: ROLLING FF5 BACKTESTS ==========
+    print("\n" + "="*80)
+    print("STEP 8: ROLLING FF5 BACKTESTS")
+    print("="*80)
+
+    from src.portfolio_optimizer import backtest_ff5_tangency
+
+    # Unconstrained backtest
+    backtest_ff5_tangency(
+        returns_path="data/processed/sp500_monthly_returns.csv",
+        ff_path="data/processed/Fama_French.csv",
+        min_train_months=120,
+        min_obs_per_stock=36,
+        long_only=False,
+    )
+
+    # Long-only backtest
+    backtest_ff5_tangency(
+        returns_path="data/processed/sp500_monthly_returns.csv",
+        ff_path="data/processed/Fama_French.csv",
+        min_train_months=120,
+        min_obs_per_stock=36,
+        long_only=True,
+        risk_aversion=10.0,
+    )
+
     # ========== FINAL SUMMARY ==========
     print("\n" + "="*80)
     print("COMPLETE PIPELINE SUMMARY")
