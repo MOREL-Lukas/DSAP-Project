@@ -1,7 +1,7 @@
 # 📊 DSAP Project: Fama–French 5-Factor & Beta-Neutral Portfolio Optimization
 
 This project performs an end-to-end **data acquisition, multi-factor modeling, and portfolio optimization** process using the **Fama–French 5-Factor Model (FF5)**.  
-It estimates factor loadings (β coefficients), constructs a **beta-neutral portfolio** maximizing expected excess return, simulates its 2025 performance using **Monte Carlo**, and compares simulated vs. realized results.
+It estimates β coefficients using machine learning, constructs a **beta-neutral portfolio** maximizing expected excess return, simulates its 2025 performance using **Monte Carlo** simulation , and backtests by comparing simulated vs. realized results.
 
 ---
 
