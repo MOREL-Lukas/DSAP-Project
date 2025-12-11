@@ -5,10 +5,7 @@ import numpy as np
 import pandas as pd
 import requests
 import yfinance as yf
-try:
-    from tqdm import tqdm
-except ImportError:
-    tqdm = lambda x, **kwargs: x
+from tqdm import tqdm
 
 
 def load_sp500_companies():
@@ -61,7 +58,7 @@ def load_rf():
 
     Saves:
     - data/raw/French_Library_data.csv       (raw FF5 table)
-    - data/processed/risk_free.csv            (cleaned subset)
+    - data/processed/Fama_French.csv            (cleaned subset)
 
     	Rm-Rf is the excess return on the market, or Market Risk Premium. It is the value-weight return 
         of all CRSP (Center for Research in Security Prices) firms incorporated in the US and 
@@ -110,19 +107,19 @@ def load_rf():
     df["Date"] = pd.to_datetime(df["Date"], format="%Y%m")
 
     # Convert factor columns from percent → decimal
-    df["RF"] = pd.to_numeric(df["RF"], errors="coerce") / 100.0
-    df["Mkt-RF"] = pd.to_numeric(df["Mkt-RF"], errors="coerce") / 100.0
+    for col in ["RF", "Mkt-RF", "SMB", "HML", "RMW", "CMA"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce") / 100.0
 
     # Compute market return:
     df["Mkt"] = df["Mkt-RF"] + df["RF"]
 
-    # Keep only the columns we want
+    # Keep the columns we want
     rf = df[["Date", "RF", "Mkt-RF", "SMB", "HML", "RMW", "CMA", "Mkt"]].copy()
 
     # Save cleaned file
-    rf.to_csv("data/processed/risk_free.csv", index=False, float_format="%.6f")
+    rf.to_csv("data/processed/Fama_French.csv", index=False, float_format="%.6f")
 
-    print("Saved monthly RF + + 5 factors + Mkt data to data/processed/risk_free.csv")
+    print("Saved monthly RF + Mkt data to data/processed/Fama_French.csv")
     return rf
 
 
@@ -161,6 +158,7 @@ def download_sp500_prices(tickers, start="2024-11-01", end="2025-11-01"):
         group_by="ticker",
         auto_adjust=True,
         threads=True,
+        timeout=30
     )
     return data
 
@@ -211,7 +209,9 @@ def load_sp500_monthly_returns(
 
     # Ensure processed directory exists
     os.makedirs("data/processed", exist_ok=True)
-
+    # Set index names
+    monthly_prices.index.name = "Date"
+    monthly_returns.index.name = "Date"
     # Save results
     monthly_prices.to_csv("data/processed/sp500_monthly_prices.csv")
     monthly_returns.to_csv("data/processed/sp500_monthly_returns.csv")
@@ -228,79 +228,7 @@ def classify_sp500_factors(tickers, force_recompute: bool = False):
     - Profitability: Robust / Weak (by returnOnEquity)
     - Investment: Conservative / Aggressive (by revenueGrowth)
 
-    Uses only yfinance .info (1 HTTP call per ticker) and caches results
-    in data/processed/sp500_ff5_classifications.csv.
-    """
-    os.makedirs("data/processed", exist_ok=True)
-    cache_path = "data/processed/sp500_ff5_classifications.csv"
-
-    # Use cached classification if available and not forcing recompute
-    if os.path.exists(cache_path) and not force_recompute:
-        df_cached = pd.read_csv(cache_path)
-        print(f"Loaded cached classifications from {cache_path}")
-        return df_cached
-
-    rows = []
-
-    print("\nFetching fundamentals from Yahoo Finance...")
-    for t in tqdm(tickers, desc="Classifying S&P 500", unit="ticker"):
-        try:
-            tk = yf.Ticker(t)
-            info = tk.info  # single quoteSummary call
-
-            me = info.get("marketCap", np.nan)
-            pb = info.get("priceToBook", np.nan)              # P/B
-            roe = info.get("returnOnEquity", np.nan)          # profitability proxy
-            rev_growth = info.get("revenueGrowth", np.nan)    # investment / growth proxy
-
-            rows.append([t, me, pb, roe, rev_growth])
-
-        except Exception as e:
-            print(f"Failed for {t}: {e}")
-            rows.append([t, np.nan, np.nan, np.nan, np.nan])
-
-    df = pd.DataFrame(
-        rows,
-        columns=["Ticker", "ME", "PB", "ROE", "RevGrowth"]
-    )
-
-    # Drop rows with missing ME (cannot classify size)
-    df = df.dropna(subset=["ME"])
-
-    # ---- Build proxies ----
-
-    # Value: use inverse of P/B as a crude B/M proxy
-    df["PB"] = df["PB"].replace(0, np.nan)
-    df["BM_proxy"] = 1.0 / df["PB"]
-
-    # ---- Cross-sectional thresholds ----
-    size_threshold = df["ME"].median()
-    bm_threshold = df["BM_proxy"].median(skipna=True)
-    roe_threshold = df["ROE"].median(skipna=True)
-    inv_threshold = df["RevGrowth"].median(skipna=True)
-
-    # ---- Classifications ----
-    df["Size"] = np.where(df["ME"] <= size_threshold, "Small", "Big")
-    df["Value"] = np.where(df["BM_proxy"] >= bm_threshold, "High", "Low")
-    df["Profitability"] = np.where(df["ROE"] >= roe_threshold, "Robust", "Weak")
-    df["Investment"] = np.where(df["RevGrowth"] <= inv_threshold,
-                                "Conservative", "Aggressive")
-
-    # Save to cache
-    df.to_csv(cache_path, index=False)
-    print(f"Saved classifications to {cache_path}")
-
-    return df
-
-    """
-    Fast approximate classification of S&P 500 companies into:
-    - Size: Small / Big            (by marketCap)
-    - Value: High / Low            (by 1 / priceToBook as B/M proxy)
-    - Profitability: Robust / Weak (by returnOnEquity)
-    - Investment: Conservative / Aggressive (by revenueGrowth)
-
-    Uses only yfinance .info (1 HTTP call per ticker) and caches results
-    in data/processed/sp500_ff5_classifications.csv.
+    Uses only yfinance .info (1 HTTP call per ticker).
 
     Parameters
     ----------
@@ -316,14 +244,6 @@ def classify_sp500_factors(tickers, force_recompute: bool = False):
                  Size, Value, Profitability, Investment
     """
     os.makedirs("data/processed", exist_ok=True)
-    cache_path = "data/processed/sp500_ff5_classifications.csv"
-
-    # Use cached classification if available and not forcing recompute
-    if os.path.exists(cache_path) and not force_recompute:
-        df_cached = pd.read_csv(cache_path)
-        print(f"Loaded cached classifications from {cache_path}")
-        return df_cached
-
     rows = []
 
     print("\nFetching fundamentals from Yahoo Finance...")
@@ -369,66 +289,6 @@ def classify_sp500_factors(tickers, force_recompute: bool = False):
     df["Profitability"] = np.where(df["ROE"] >= roe_threshold, "Robust", "Weak")
     df["Investment"] = np.where(df["RevGrowth"] <= inv_threshold,
                                 "Conservative", "Aggressive")
-
-    # Save to cache
-    df.to_csv(cache_path, index=False)
-    print(f"Saved classifications to {cache_path}")
-
-    return df
-
-    rows = []
-
-    for t in tickers:
-        try:
-            tk = yf.Ticker(t)
-            bs = tk.balance_sheet
-            is_ = tk.financials
-            info = tk.info
-
-            ME = info.get("marketCap", np.nan)
-
-            # Book equity
-            book = (
-                bs.loc["Total Stockholder Equity"].iloc[0]
-                if "Total Stockholder Equity" in bs.index
-                else np.nan
-            )
-
-            B_M = book / ME if (ME and ME != 0) else np.nan
-
-            # Profitability
-            revenue = is_.loc["Total Revenue"].iloc[0] if "Total Revenue" in is_.index else np.nan
-            cogs = is_.loc["Cost Of Revenue"].iloc[0] if "Cost Of Revenue" in is_.index else np.nan
-            sgna = is_.loc["Selling General Administrative"].iloc[0] if "Selling General Administrative" in is_.index else 0
-            interest = is_.loc["Interest Expense"].iloc[0] if "Interest Expense" in is_.index else 0
-
-            OP = (
-                (revenue - cogs - sgna - interest) / book
-                if (book and book != 0)
-                else np.nan
-            )
-
-            # Investment (asset growth)
-            if "Total Assets" in bs.index and bs.loc["Total Assets"].shape[0] >= 2:
-                assets_t = bs.loc["Total Assets"].iloc[0]
-                assets_tm1 = bs.loc["Total Assets"].iloc[1]
-                INV = (assets_t - assets_tm1) / assets_tm1 if assets_tm1 != 0 else np.nan
-            else:
-                INV = np.nan
-
-            rows.append([t, ME, B_M, OP, INV])
-
-        except Exception as e:
-            print(f"Failed for {t}: {e}")
-            continue
-
-    df = pd.DataFrame(rows, columns=["Ticker", "ME", "B_M", "OP", "INV"])
-
-    # Classification thresholds
-    df["Size"] = np.where(df["ME"] <= df["ME"].median(), "Small", "Big")
-    df["Value"] = np.where(df["B_M"] >= df["B_M"].median(), "High", "Low")
-    df["Profitability"] = np.where(df["OP"] >= df["OP"].median(), "Robust", "Weak")
-    df["Investment"] = np.where(df["INV"] <= df["INV"].median(), "Conservative", "Aggressive")
 
     return df
 
