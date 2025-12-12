@@ -157,10 +157,6 @@ def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
         DataFrame with beta estimates for each stock
     """
     
-    print("="*80)
-    print("CAPM BETA CALCULATION")
-    print("="*80)
-    
     # 1) Load stock returns
     print("\n1. Loading stock returns...")
     returns_df = pd.read_csv(returns_path, parse_dates=['Date'], index_col='Date')

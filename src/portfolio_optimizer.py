@@ -1,15 +1,57 @@
 import os
-import numpy as np
-import pandas as pd
-
 from typing import Tuple, Optional
 
-from src.factor_predictor import FactorPredictor
-from src.monte_carlo import HistoricalMeanBaseline
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
 
+from src.factor_predictor import FactorPredictor
 
 FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
+
+# ======================================================================
+# Utility: covariance regularization
+# ======================================================================
+
+def regularize_covariance(Sigma: np.ndarray, ridge_ratio: float = 1e-3) -> np.ndarray:
+    """
+    Symmetrize and ridge-regularize a covariance matrix.
+
+    Parameters
+    ----------
+    Sigma : np.ndarray
+        Input (approximate) covariance matrix.
+    ridge_ratio : float
+        Ridge size as a fraction of the average variance (trace / N).
+
+    Returns
+    -------
+    Sigma_reg : np.ndarray
+        Symmetric, regularized covariance matrix.
+    """
+    n = Sigma.shape[0]
+    if n == 0:
+        return Sigma
+
+    # Symmetrize
+    Sigma_sym = 0.5 * (Sigma + Sigma.T)
+
+    # Compute average variance
+    avg_var = np.trace(Sigma_sym) / n
+    if not np.isfinite(avg_var) or avg_var <= 0:
+        # Fallback ridge if something is off
+        ridge = ridge_ratio
+    else:
+        ridge = ridge_ratio * avg_var
+
+    Sigma_reg = Sigma_sym + ridge * np.eye(n)
+    return Sigma_reg
+
+
+# ======================================================================
+# FF5 beta estimation
+# ======================================================================
 
 def estimate_ff5_betas(
     returns_path: str = "data/processed/sp500_monthly_returns.csv",
@@ -64,15 +106,10 @@ def estimate_ff5_betas(
     if missing_cols:
         raise ValueError(f"Missing columns in {ff_path}: {missing_cols}")
 
-    # 3) Align by date (and remove any overlapping factor/RF columns from returns_df)
+    # 3) Align by date and remove overlapping columns in returns_df
     print("\n3. Aligning stock returns and factor data...")
-
-    # Some pipelines (like your CAPM step) may have already merged RF (or factors)
-    # into the returns file. We want to treat the Fama-French file as canonical,
-    # so drop any overlapping factor/RF columns from returns_df before joining.
     overlap_cols = list(set(returns_df.columns) & set(FACTOR_COLS + ["RF"]))
     if overlap_cols:
-        print(f"   Dropping overlapping columns from returns_df to avoid duplication: {overlap_cols}")
         returns_df = returns_df.drop(columns=overlap_cols)
 
     data = returns_df.join(ff[FACTOR_COLS + ["RF"]], how="inner")
@@ -171,6 +208,10 @@ def estimate_ff5_betas(
     return betas_df
 
 
+# ======================================================================
+# Factor premia with ML-overlay on HML
+# ======================================================================
+
 def compute_factor_premia_with_hml_overlay(
     ff_path: str,
     factor_ml_dataset_path: str,
@@ -222,40 +263,50 @@ def compute_factor_premia_with_hml_overlay(
     print(f"  ML HML forecast:        {hml_pred:+.4f} ({hml_pred*100:+.2f}%)")
     print(f"  Historical HML mean:    {hist_means['HML']:+.4f} ({hist_means['HML']*100:+.2f}%)")
     hml_shrunk = (1 - lambda_hml) * hist_means["HML"] + lambda_hml * hml_pred
-    print(f"  Shrunk HML premium (λ={lambda_hml:.2f}): "
-          f"{hml_shrunk:+.4f} ({hml_shrunk*100:+.2f}%)")
+    print(
+        f"  Shrunk HML premium (λ={lambda_hml:.2f}): "
+        f"{hml_shrunk:+.4f} ({hml_shrunk*100:+.2f}%)"
+    )
 
     mu_f["HML"] = hml_shrunk
 
     return mu_f
 
 
+# ======================================================================
+# Factor covariance from FF data
+# ======================================================================
+
 def build_ff5_factor_model(
     betas_df: pd.DataFrame,
     ff_path: str = "data/processed/Fama_French.csv",
-) -> Tuple[pd.Series, np.ndarray]:
+) -> np.ndarray:
     """
-    Build factor-based asset return moments (μ_R, Σ_R).
+    Build factor covariance matrix Σ_f from Fama-French data.
 
     Parameters
     ----------
     betas_df : pd.DataFrame
         Output of estimate_ff5_betas(), indexed by Ticker.
+        (Provided for potential future use; not used directly here.)
     ff_path : str
         Path to Fama-French CSV for estimating Σ_f.
 
     Returns
     -------
-    factor_cov : np.ndarray
-        5x5 factor covariance matrix Σ_f (in monthly terms).
+    Sigma_f : np.ndarray
+        5x5 factor covariance matrix Σ_f (monthly).
     """
 
     ff = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
     factor_returns = ff[FACTOR_COLS].dropna()
-    # Sample covariance of factors
     Sigma_f = factor_returns.cov().values
-
     return Sigma_f
+
+
+# ======================================================================
+# Static unconstrained FF5 tangency portfolio
+# ======================================================================
 
 def build_ff5_optimal_portfolio(
     returns_path: str,
@@ -267,7 +318,23 @@ def build_ff5_optimal_portfolio(
 ) -> pd.DataFrame:
     """
     Build the unconstrained FF5 tangency portfolio with an ML HML overlay.
-    [...]
+
+    Steps
+    -----
+    1) Estimate FF5 betas and residual variances for each stock.
+    2) Estimate factor covariance matrix Σ_f from history.
+    3) Compute expected factor premia μ_f (historical means + shrunk ML HML).
+    4) Compute asset expected excess returns μ_R = B μ_f.
+    5) Compute asset covariance Σ_R = B Σ_f B' + Ω (regularized).
+    6) Compute tangency weights: w* ∝ Σ_R^{-1} μ_R, normalized to sum to 1.
+
+    Returns
+    -------
+    weights_df : pd.DataFrame
+        DataFrame indexed by Ticker with columns:
+        - Weight
+        - Alpha, Beta_MKT, Beta_SMB, Beta_HML, Beta_RMW, Beta_CMA
+        - ResidVar
     """
 
     # 1) Estimate FF5 betas
@@ -279,11 +346,11 @@ def build_ff5_optimal_portfolio(
     )
 
     # Keep only stocks with valid betas
-    betas_valid = betas_df.dropna(subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"])
+    betas_valid = betas_df.dropna(
+        subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]
+    )
     if betas_valid.empty:
         raise ValueError("No valid FF5 betas available for portfolio construction.")
-
-    tickers = betas_valid.index.tolist()
 
     # 2) Factor covariance
     Sigma_f = build_ff5_factor_model(betas_valid, ff_path=ff_path)
@@ -301,18 +368,17 @@ def build_ff5_optimal_portfolio(
     mu_f_vec = mu_f[FACTOR_COLS].values.reshape(-1, 1)  # 5x1
     mu_R = (B @ mu_f_vec).reshape(-1)  # N
 
-    # 5) Asset covariance Σ_R = B Σ_f B' + Ω
+    # 5) Asset covariance Σ_R = B Σ_f B' + Ω (regularized)
     resid_var = betas_valid["ResidVar"].fillna(betas_valid["ResidVar"].median())
     Omega = np.diag(resid_var.values)  # N x N
-
     Sigma_R = B @ Sigma_f @ B.T + Omega
+    Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
 
-    # 6) Tangency portfolio: w* ∝ Σ_R^{-1} μ_R
     print("\n" + "=" * 80)
     print("FF5 TANGENCY PORTFOLIO (UNCONSTRAINED, EXCESS RETURN SPACE)")
     print("=" * 80)
 
-    # Use pseudo-inverse for numerical safety
+    # 6) Tangency portfolio: w* ∝ Σ_R^{-1} μ_R
     inv_Sigma_R = np.linalg.pinv(Sigma_R)
     raw_w = inv_Sigma_R @ mu_R
 
@@ -324,7 +390,6 @@ def build_ff5_optimal_portfolio(
     weights_df = betas_valid.copy()
     weights_df["Weight"] = w_star
 
-    # Sort by descending weight
     weights_df = weights_df.sort_values("Weight", ascending=False)
 
     # Portfolio-level betas
@@ -332,7 +397,7 @@ def build_ff5_optimal_portfolio(
     avg_beta_mkt = float(np.sum(weights_df["Weight"] * weights_df["Beta_MKT"]))
     avg_beta_hml = float(np.sum(weights_df["Weight"] * weights_df["Beta_HML"]))
 
-    # Portfolio-level risk & return
+    # Portfolio risk & return
     mu_p = float(w_star @ mu_R)
     var_p = float(w_star @ (Sigma_R @ w_star))
     sigma_p = float(np.sqrt(max(var_p, 0.0)))
@@ -367,6 +432,11 @@ def build_ff5_optimal_portfolio(
     print("\nWeights saved to: data/processed/ff5_optimal_portfolio_weights.csv")
 
     return weights_df
+
+
+# ======================================================================
+# Static long-only FF5 portfolio
+# ======================================================================
 
 def build_ff5_optimal_portfolio_long_only(
     returns_path: str,
@@ -414,7 +484,9 @@ def build_ff5_optimal_portfolio_long_only(
         output_path="data/processed/sp500_ff5_betas.csv",
     )
 
-    betas_valid = betas_df.dropna(subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"])
+    betas_valid = betas_df.dropna(
+        subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]
+    )
     if betas_valid.empty:
         raise ValueError("No valid FF5 betas available for portfolio construction.")
 
@@ -434,10 +506,11 @@ def build_ff5_optimal_portfolio_long_only(
     mu_f_vec = mu_f[FACTOR_COLS].values.reshape(-1, 1)
     mu_R = (B @ mu_f_vec).reshape(-1)
 
-    # 5) Asset covariance Σ_R = B Σ_f B' + Ω
+    # 5) Asset covariance Σ_R = B Σ_f B' + Ω (regularized)
     resid_var = betas_valid["ResidVar"].fillna(betas_valid["ResidVar"].median())
     Omega = np.diag(resid_var.values)
     Sigma_R = B @ Sigma_f @ B.T + Omega
+    Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
 
     N = Sigma_R.shape[0]
 
@@ -445,21 +518,24 @@ def build_ff5_optimal_portfolio_long_only(
     print("FF5 TANGENCY PORTFOLIO (LONG-ONLY, FULLY INVESTED)")
     print("=" * 80)
 
-    # 6) Long-only optimization
     w = cp.Variable(N)
     mu_param = mu_R
-    Sigma_param = Sigma_R
+
+    # Use the regularized covariance in cvxpy
+    Sigma_param = cp.psd_wrap(Sigma_R)
 
     objective = cp.Minimize(-mu_param @ w + risk_aversion * cp.quad_form(w, Sigma_param))
     constraints = [cp.sum(w) == 1, w >= 0]
     prob = cp.Problem(objective, constraints)
-    prob.solve(solver=cp.SCS)
+    try:
+        prob.solve(solver=cp.OSQP, verbose=False)
+    except Exception as e:
+        raise RuntimeError(f"Long-only optimization failed: {e}")
 
     if w.value is None:
-        raise RuntimeError("Optimization failed for long-only FF5 portfolio.")
+        raise RuntimeError("Long-only optimization returned no solution.")
 
     w_star = np.array(w.value).reshape(-1)
-    # Numerical cleanup: clip tiny negatives and renormalize
     w_star = np.maximum(w_star, 0.0)
     if w_star.sum() == 0:
         raise RuntimeError("All weights are zero after clipping; check optimization.")
@@ -508,6 +584,11 @@ def build_ff5_optimal_portfolio_long_only(
 
     return weights_df
 
+
+# ======================================================================
+# Rolling expanding-window FF5 backtest (unconstrained / long-only)
+# ======================================================================
+
 def backtest_ff5_tangency(
     returns_path: str,
     ff_path: str,
@@ -528,7 +609,7 @@ def backtest_ff5_tangency(
     Parameters
     ----------
     long_only : bool
-        If True, use long-only optimizer (Option A).
+        If True, use long-only optimizer.
         If False, use unconstrained closed-form tangency portfolio.
     risk_aversion : float
         γ parameter for long-only optimization.
@@ -566,7 +647,6 @@ def backtest_ff5_tangency(
     # Align & drop overlapping factor/RF columns from returns_df
     overlap_cols = list(set(returns_df.columns) & set(FACTOR_COLS + ["RF"]))
     if overlap_cols:
-        print(f"\nDropping overlapping columns from returns_df: {overlap_cols}")
         returns_df = returns_df.drop(columns=overlap_cols)
 
     # Join on date
@@ -595,7 +675,11 @@ def backtest_ff5_tangency(
     mkt_rets = []
     out_dates = []
 
-    for t_idx in range(min_train_months, n_months):
+    for t_idx in tqdm(
+        range(min_train_months, n_months),
+        desc="Rolling FF5 Backtest",
+        leave=True,
+    ):
         # Training window: up to t_idx-1
         train_slice = data.iloc[:t_idx]
         test_row = data.iloc[t_idx]
@@ -617,7 +701,6 @@ def backtest_ff5_tangency(
             y = stock_excess_train[col]
             df_reg = pd.concat([y, X_factors], axis=1).dropna()
             if len(df_reg) < min_obs_per_stock:
-                # Skip this stock this month (weight will be zero)
                 betas_list.append([np.nan] * 6)  # alpha + 5 betas
                 resid_vars.append(np.nan)
                 continue
@@ -660,29 +743,47 @@ def backtest_ff5_tangency(
         )
         Omega = np.diag(resid_var_filled)
         Sigma_R = B @ Sigma_f @ B.T + Omega
-
-        # Ensure symmetry
-        Sigma_R = 0.5 * (Sigma_R + Sigma_R.T)
+        Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
 
         # 5) Compute weights
         if long_only:
-            # Long-only mean-variance via cvxpy
             import cvxpy as cp
 
             N = len(stock_cols)
             w = cp.Variable(N)
-            objective = cp.Minimize(-mu_R @ w + risk_aversion * cp.quad_form(w, Sigma_R))
+
+            Sigma_param = cp.psd_wrap(Sigma_R)
+
+            objective = cp.Minimize(
+                -mu_R @ w + risk_aversion * cp.quad_form(w, Sigma_param)
+            )
             constraints = [cp.sum(w) == 1, w >= 0]
+
             prob = cp.Problem(objective, constraints)
-            prob.solve(solver=cp.SCS, verbose=False)
+
+            try:
+                prob.solve(solver=cp.OSQP, verbose=False)
+            except Exception as e:
+                print(
+                    f"  [Warning] Solver failed at {test_date.date()}: {e}. "
+                    f"Skipping this month."
+                )
+                continue
 
             if w.value is None:
-                # Skip this month if optimization fails
+                print(
+                    f"  [Warning] No solution returned at {test_date.date()}. "
+                    f"Skipping this month."
+                )
                 continue
 
             w_star = np.array(w.value).reshape(-1)
             w_star = np.maximum(w_star, 0.0)
             if w_star.sum() == 0:
+                print(
+                    f"  [Warning] All-zero weights at {test_date.date()}. "
+                    f"Skipping this month."
+                )
                 continue
             w_star = w_star / w_star.sum()
         else:
