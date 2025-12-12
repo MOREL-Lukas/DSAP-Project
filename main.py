@@ -203,17 +203,6 @@ def main():
         ff_path="data/processed/Fama_French.csv",
         min_train_months=120,
         min_obs_per_stock=36,
-        long_only=False,
-    )
-
-    # Long-only backtest
-    backtest_ff5_tangency(
-        returns_path="data/processed/sp500_monthly_returns.csv",
-        ff_path="data/processed/Fama_French.csv",
-        min_train_months=120,
-        min_obs_per_stock=36,
-        long_only=True,
-        risk_aversion=10.0,
     )
 
     # ========== FINAL SUMMARY ==========

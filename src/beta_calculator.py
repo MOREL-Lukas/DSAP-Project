@@ -223,21 +223,6 @@ def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
     print(f"\nModel Fit:")
     print(f"Average R²: {betas_df['R²'].mean():.4f}")
     print(f"Average Adj R²: {betas_df['Adj_R²'].mean():.4f}")
-    print(f"Median R²: {betas_df['R²'].median():.4f}")
-    print(f"Median Adj R²: {betas_df['Adj_R²'].median():.4f}")
-    
-    # Identify high/low beta stocks
-    print(f"\n" + "-"*80)
-    print("TOP 5 HIGH-BETA STOCKS (Most Volatile)")
-    print("-"*80)
-    high_beta = betas_df.nlargest(5, 'Beta')[['Ticker', 'Beta', 'R²', 'Adj_R²']]
-    print(high_beta.to_string(index=False))
-    
-    print(f"\n" + "-"*80)
-    print("TOP 5 LOW-BETA STOCKS (Defensive)")
-    print("-"*80)
-    low_beta = betas_df.nsmallest(5, 'Beta')[['Ticker', 'Beta', 'R²', 'Adj_R²']]
-    print(low_beta.to_string(index=False))
     
     # 7) Save results
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

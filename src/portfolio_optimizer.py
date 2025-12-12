@@ -48,6 +48,93 @@ def regularize_covariance(Sigma: np.ndarray, ridge_ratio: float = 1e-3) -> np.nd
     Sigma_reg = Sigma_sym + ridge * np.eye(n)
     return Sigma_reg
 
+MAX_WEIGHT = 0.10     # per-stock max |weight|
+MAX_SHORT = 0.30      # max total short exposure (as fraction of NAV)
+
+
+def apply_weight_constraints(weights: np.ndarray,
+                             max_weight: float = MAX_WEIGHT,
+                             max_short: float = MAX_SHORT) -> np.ndarray:
+    """
+    Post-process tangency weights to impose simple, realistic constraints:
+
+    1) |w_i| <= max_weight
+    2) Total short exposure <= max_short
+    3) Portfolio sums to 1 (fully invested)
+
+    Parameters
+    ----------
+    weights : np.ndarray
+        Raw unconstrained weights (sum should be ~1, but may not be).
+    max_weight : float
+        Maximum absolute weight per stock.
+    max_short : float
+        Maximum total short exposure (sum of |w_i| for w_i < 0).
+
+    Returns
+    -------
+    w_constrained : np.ndarray
+        Constrained and renormalized weights.
+    """
+
+    w = weights.astype(float).copy()
+    n = len(w)
+
+    # 1) Clip each weight to [-max_weight, +max_weight]
+    w = np.clip(w, -max_weight, max_weight)
+
+    # If everything is zero after clipping, fallback to equal-weight
+    if np.allclose(w, 0.0):
+        return np.ones_like(w) / n
+
+    # 2) Enforce max total short exposure
+    neg_mask = w < 0
+    pos_mask = w > 0
+
+    short_exposure = -w[neg_mask].sum()  # positive number
+    if short_exposure > max_short and short_exposure > 0:
+        # Scale shorts so total short exposure = max_short
+        scale_neg = max_short / short_exposure
+        w[neg_mask] *= scale_neg
+
+        # Recompute sums
+        short_sum = w[neg_mask].sum()    # negative
+        long_sum = w[pos_mask].sum()     # positive
+
+        # If no long exposure left, fallback to equal-weight long-only
+        if long_sum <= 0:
+            w = np.zeros_like(w)
+            w[~neg_mask] = 1.0 / (~neg_mask).sum()
+            return w
+
+        # Adjust long side so that total portfolio sums to 1
+        # We keep the new short side fixed and rescale longs:
+        target_long_sum = 1.0 - short_sum  # short_sum is negative
+        scale_pos = target_long_sum / long_sum
+        w[pos_mask] *= scale_pos
+    else:
+        # No short constraint binding: just normalize to sum to 1
+        total = w.sum()
+        if not np.allclose(total, 0.0):
+            w /= total
+        else:
+            w = np.ones_like(w) / n
+
+    # Final sanity checks
+    if not np.isfinite(w).all():
+        w = np.ones_like(w) / n
+
+    # Enforce |w_i| <= max_weight again in case of tiny numerical drift
+    w = np.clip(w, -max_weight, max_weight)
+
+    # Renormalize one last time
+    total = w.sum()
+    if not np.allclose(total, 0.0):
+        w /= total
+    else:
+        w = np.ones_like(w) / n
+
+    return w
 
 # ======================================================================
 # FF5 beta estimation
@@ -89,10 +176,6 @@ def estimate_ff5_betas(
         - ResidVar      (idiosyncratic variance)
         - N_obs
     """
-
-    print("\n" + "=" * 80)
-    print("FF5 BETA ESTIMATION")
-    print("=" * 80)
 
     # 1) Load stock returns
     print("\n1. Loading stock returns...")
@@ -385,7 +468,11 @@ def build_ff5_optimal_portfolio(
     if np.allclose(raw_w.sum(), 0.0):
         raise ValueError("Sum of raw weights is zero; cannot normalize. Check inputs.")
 
-    w_star = raw_w / raw_w.sum()
+    # Unconstrained tangency weights
+    w_raw = raw_w / raw_w.sum()
+
+    # Apply practical constraints
+    w_star = apply_weight_constraints(w_raw)
 
     weights_df = betas_valid.copy()
     weights_df["Weight"] = w_star
@@ -435,158 +522,7 @@ def build_ff5_optimal_portfolio(
 
 
 # ======================================================================
-# Static long-only FF5 portfolio
-# ======================================================================
-
-def build_ff5_optimal_portfolio_long_only(
-    returns_path: str,
-    ff_path: str,
-    factor_ml_dataset_path: str,
-    best_model: FactorPredictor,
-    lambda_hml: float = 0.2,
-    min_obs: int = 36,
-    risk_aversion: float = 10.0,
-) -> pd.DataFrame:
-    """
-    Build a long-only, fully-invested FF5 optimal portfolio.
-
-    Objective:
-        minimize   -μ_R' w + γ w' Σ_R w
-    subject to:
-        sum(w) = 1
-        w >= 0
-
-    Parameters
-    ----------
-    risk_aversion : float
-        γ parameter controlling the trade-off between mean and variance.
-        Higher γ => more risk-averse (more diversified, lower risk).
-
-    Returns
-    -------
-    weights_df : pd.DataFrame
-        Index: Ticker, columns: Weight, betas, ResidVar.
-    """
-
-    try:
-        import cvxpy as cp
-    except ImportError as e:
-        raise ImportError(
-            "cvxpy is required for the long-only optimizer. "
-            "Install it with `pip install cvxpy`."
-        ) from e
-
-    # 1) Estimate FF5 betas
-    betas_df = estimate_ff5_betas(
-        returns_path=returns_path,
-        ff_path=ff_path,
-        min_obs=min_obs,
-        output_path="data/processed/sp500_ff5_betas.csv",
-    )
-
-    betas_valid = betas_df.dropna(
-        subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]
-    )
-    if betas_valid.empty:
-        raise ValueError("No valid FF5 betas available for portfolio construction.")
-
-    # 2) Factor covariance
-    Sigma_f = build_ff5_factor_model(betas_valid, ff_path=ff_path)
-
-    # 3) Expected factor premia μ_f (with HML overlay)
-    mu_f = compute_factor_premia_with_hml_overlay(
-        ff_path=ff_path,
-        factor_ml_dataset_path=factor_ml_dataset_path,
-        best_model=best_model,
-        lambda_hml=lambda_hml,
-    )
-
-    # 4) Asset expected excess returns μ_R = B μ_f
-    B = betas_valid[["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]].values
-    mu_f_vec = mu_f[FACTOR_COLS].values.reshape(-1, 1)
-    mu_R = (B @ mu_f_vec).reshape(-1)
-
-    # 5) Asset covariance Σ_R = B Σ_f B' + Ω (regularized)
-    resid_var = betas_valid["ResidVar"].fillna(betas_valid["ResidVar"].median())
-    Omega = np.diag(resid_var.values)
-    Sigma_R = B @ Sigma_f @ B.T + Omega
-    Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
-
-    N = Sigma_R.shape[0]
-
-    print("\n" + "=" * 80)
-    print("FF5 TANGENCY PORTFOLIO (LONG-ONLY, FULLY INVESTED)")
-    print("=" * 80)
-
-    w = cp.Variable(N)
-    mu_param = mu_R
-
-    # Use the regularized covariance in cvxpy
-    Sigma_param = cp.psd_wrap(Sigma_R)
-
-    objective = cp.Minimize(-mu_param @ w + risk_aversion * cp.quad_form(w, Sigma_param))
-    constraints = [cp.sum(w) == 1, w >= 0]
-    prob = cp.Problem(objective, constraints)
-    try:
-        prob.solve(solver=cp.OSQP, verbose=False)
-    except Exception as e:
-        raise RuntimeError(f"Long-only optimization failed: {e}")
-
-    if w.value is None:
-        raise RuntimeError("Long-only optimization returned no solution.")
-
-    w_star = np.array(w.value).reshape(-1)
-    w_star = np.maximum(w_star, 0.0)
-    if w_star.sum() == 0:
-        raise RuntimeError("All weights are zero after clipping; check optimization.")
-    w_star = w_star / w_star.sum()
-
-    weights_df = betas_valid.copy()
-    weights_df["Weight"] = w_star
-    weights_df = weights_df.sort_values("Weight", ascending=False)
-
-    # Portfolio stats
-    total_weight = float(weights_df["Weight"].sum())
-    avg_beta_mkt = float(np.sum(weights_df["Weight"] * weights_df["Beta_MKT"]))
-    avg_beta_hml = float(np.sum(weights_df["Weight"] * weights_df["Beta_HML"]))
-
-    mu_p = float(w_star @ mu_R)
-    var_p = float(w_star @ (Sigma_R @ w_star))
-    sigma_p = float(np.sqrt(max(var_p, 0.0)))
-    sharpe_p = mu_p / sigma_p if sigma_p > 0 else np.nan
-
-    ff_full = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
-    mu_mkt = float(ff_full["Mkt-RF"].mean())
-    alpha_capm = mu_p - avg_beta_mkt * mu_mkt
-
-    print("\nTop 10 positions in LONG-ONLY FF5 portfolio:")
-    print("-" * 80)
-    print(
-        weights_df[["Weight", "Beta_MKT", "Beta_HML"]]
-        .head(10)
-        .to_string(float_format=lambda x: f"{x:+.4f}")
-    )
-
-    print("\nPortfolio summary (long-only):")
-    print("-" * 80)
-    print(f"  Sum of weights:         {total_weight:.4f}")
-    print(f"  Portfolio MKT beta:     {avg_beta_mkt:.3f}")
-    print(f"  Portfolio HML beta:     {avg_beta_hml:.3f}")
-    print(f"  Expected excess return: {mu_p:+.4f} ({mu_p*100:+.2f}%)")
-    print(f"  Volatility (stdev):     {sigma_p:.4f} ({sigma_p*100:.2f}%)")
-    print(f"  Sharpe ratio:           {sharpe_p:.3f}")
-    print(f"  CAPM alpha (monthly):   {alpha_capm:+.4f} ({alpha_capm*100:+.2f}%)")
-    print(f"  Number of stocks:       {len(weights_df)}")
-
-    os.makedirs("data/processed", exist_ok=True)
-    weights_df.to_csv("data/processed/ff5_optimal_portfolio_weights_long_only.csv")
-    print("\nWeights saved to: data/processed/ff5_optimal_portfolio_weights_long_only.csv")
-
-    return weights_df
-
-
-# ======================================================================
-# Rolling expanding-window FF5 backtest (unconstrained / long-only)
+# Rolling expanding-window FF5 backtest
 # ======================================================================
 
 def backtest_ff5_tangency(
@@ -594,8 +530,6 @@ def backtest_ff5_tangency(
     ff_path: str,
     min_train_months: int = 120,
     min_obs_per_stock: int = 36,
-    long_only: bool = False,
-    risk_aversion: float = 10.0,
 ) -> pd.DataFrame:
     """
     Rolling expanding-window backtest of FF5 tangency portfolio.
@@ -603,16 +537,8 @@ def backtest_ff5_tangency(
     For each month t >= min_train_months:
         1) Use data up to t-1 to estimate FF5 betas and Σ_f.
         2) Compute μ_f as historical means (training window only).
-        3) Build μ_R and Σ_R, compute portfolio weights (unconstrained or long-only).
+        3) Build μ_R and Σ_R, compute portfolio weights .
         4) Apply weights to month t excess returns to get realized portfolio return.
-
-    Parameters
-    ----------
-    long_only : bool
-        If True, use long-only optimizer.
-        If False, use unconstrained closed-form tangency portfolio.
-    risk_aversion : float
-        γ parameter for long-only optimization.
 
     Returns
     -------
@@ -623,14 +549,8 @@ def backtest_ff5_tangency(
             Mkt_RF
     """
 
-    print("\n" + "=" * 80)
-    print("ROLLING FF5 TANGENCY BACKTEST")
-    print("=" * 80)
     print(f"  min_train_months   = {min_train_months}")
     print(f"  min_obs_per_stock  = {min_obs_per_stock}")
-    print(f"  long_only          = {long_only}")
-    print(f"  risk_aversion      = {risk_aversion}")
-
     # Load data
     returns_df = pd.read_csv(returns_path, parse_dates=["Date"], index_col="Date")
     ff = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
@@ -737,45 +657,23 @@ def backtest_ff5_tangency(
         Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
 
         # 5) Compute weights
-        if long_only:
-            # Long-only approximation:
-            # 1) Compute unconstrained tangency weights
-            # 2) Clip negatives to 0
-            # 3) Renormalize to sum to 1
-            try:
-                inv_Sigma_R = np.linalg.pinv(Sigma_R)
-                raw_w = inv_Sigma_R @ mu_R
-            except np.linalg.LinAlgError:
-                print(
-                    f"  [Warning] Σ_R singular at {test_date.date()} in long-only mode. "
-                    f"Skipping this month."
-                )
+       
+        try:
+            inv_Sigma_R = np.linalg.pinv(Sigma_R)
+            raw_w = inv_Sigma_R @ mu_R
+            if np.allclose(raw_w.sum(), 0.0):
+                # If the optimizer degenerates, skip this month
                 continue
 
-            # If everything is basically zero, skip
-            if np.allclose(raw_w, 0.0):
-                print(
-                    f"  [Warning] Raw weights all zero at {test_date.date()}. "
-                    f"Skipping this month."
-                )
-                continue
-
-            w_star = np.maximum(raw_w, 0.0)
-            if w_star.sum() <= 0:
-                # Fallback: equal-weight across stocks if all entries were negative
-                w_star = np.ones_like(w_star) / len(w_star)
-            else:
-                w_star = w_star / w_star.sum()
-        else:
             # Unconstrained tangency weights
-            try:
-                inv_Sigma_R = np.linalg.pinv(Sigma_R)
-                raw_w = inv_Sigma_R @ mu_R
-                if np.allclose(raw_w.sum(), 0.0):
-                    continue
-                w_star = raw_w / raw_w.sum()
-            except np.linalg.LinAlgError:
-                continue
+            w_raw = raw_w / raw_w.sum()
+
+            # Apply practical constraints (max 10% per stock, max 30% shorts)
+            w_star = apply_weight_constraints(w_raw)
+
+        except np.linalg.LinAlgError:
+            # Skip if Σ_R is too singular even after regularization
+            continue
 
 
         # 6) Realized excess return at month t_idx
@@ -828,11 +726,7 @@ def backtest_ff5_tangency(
         print("\nBacktest produced too few observations for summary statistics.")
 
     os.makedirs("data/processed", exist_ok=True)
-    out_path = (
-        "data/processed/ff5_backtest_long_only.csv"
-        if long_only
-        else "data/processed/ff5_backtest_unconstrained.csv"
-    )
+    out_path = "data/processed/ff5_backtest_unconstrained.csv"
     results.to_csv(out_path)
     print(f"\nBacktest results saved to: {out_path}")
 
