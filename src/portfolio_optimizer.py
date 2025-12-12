@@ -623,15 +623,6 @@ def backtest_ff5_tangency(
             Mkt_RF
     """
 
-    try:
-        if long_only:
-            import cvxpy as cp  # noqa: F401
-    except ImportError as e:
-        raise ImportError(
-            "cvxpy is required for long-only backtest. "
-            "Install it with `pip install cvxpy` or set long_only=False."
-        ) from e
-
     print("\n" + "=" * 80)
     print("ROLLING FF5 TANGENCY BACKTEST")
     print("=" * 80)
@@ -747,45 +738,34 @@ def backtest_ff5_tangency(
 
         # 5) Compute weights
         if long_only:
-            import cvxpy as cp
-
-            N = len(stock_cols)
-            w = cp.Variable(N)
-
-            Sigma_param = cp.psd_wrap(Sigma_R)
-
-            objective = cp.Minimize(
-                -mu_R @ w + risk_aversion * cp.quad_form(w, Sigma_param)
-            )
-            constraints = [cp.sum(w) == 1, w >= 0]
-
-            prob = cp.Problem(objective, constraints)
-
+            # Long-only approximation:
+            # 1) Compute unconstrained tangency weights
+            # 2) Clip negatives to 0
+            # 3) Renormalize to sum to 1
             try:
-                prob.solve(solver=cp.OSQP, verbose=False)
-            except Exception as e:
+                inv_Sigma_R = np.linalg.pinv(Sigma_R)
+                raw_w = inv_Sigma_R @ mu_R
+            except np.linalg.LinAlgError:
                 print(
-                    f"  [Warning] Solver failed at {test_date.date()}: {e}. "
+                    f"  [Warning] Σ_R singular at {test_date.date()} in long-only mode. "
                     f"Skipping this month."
                 )
                 continue
 
-            if w.value is None:
+            # If everything is basically zero, skip
+            if np.allclose(raw_w, 0.0):
                 print(
-                    f"  [Warning] No solution returned at {test_date.date()}. "
+                    f"  [Warning] Raw weights all zero at {test_date.date()}. "
                     f"Skipping this month."
                 )
                 continue
 
-            w_star = np.array(w.value).reshape(-1)
-            w_star = np.maximum(w_star, 0.0)
-            if w_star.sum() == 0:
-                print(
-                    f"  [Warning] All-zero weights at {test_date.date()}. "
-                    f"Skipping this month."
-                )
-                continue
-            w_star = w_star / w_star.sum()
+            w_star = np.maximum(raw_w, 0.0)
+            if w_star.sum() <= 0:
+                # Fallback: equal-weight across stocks if all entries were negative
+                w_star = np.ones_like(w_star) / len(w_star)
+            else:
+                w_star = w_star / w_star.sum()
         else:
             # Unconstrained tangency weights
             try:
@@ -796,6 +776,7 @@ def backtest_ff5_tangency(
                 w_star = raw_w / raw_w.sum()
             except np.linalg.LinAlgError:
                 continue
+
 
         # 6) Realized excess return at month t_idx
         rf_test = float(test_row["RF"])
