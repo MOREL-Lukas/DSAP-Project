@@ -2,6 +2,8 @@
 
 This project builds a **machine learning pipeline** to predict monthly returns of the **Fama-French 5-Factor Model** using S&P 500 stock data, macroeconomic indicators, and market conditions. The system downloads 25+ years of historical data, engineers 84+ predictive features, trains multiple ML models, and compares their performance against a historical average baseline.
 
+MOREL, Lukas
+22414569
 ---
 
 ## 🎯 Project Overview
@@ -27,11 +29,7 @@ conda activate DSAP-Project
 
 ### Additional Requirements
 
-Install FRED API library (optional but recommended for full macroeconomic features):
-
-```bash
-pip install fredapi
-```
+A FRED API key is required for full macroeconomic features:
 
 Get a free FRED API key at: https://fred.stlouisfed.org/docs/api/api_key.html
 
@@ -251,13 +249,6 @@ Edit `main.py`:
 fred_api_key = "YOUR_API_KEY_HERE"
 ```
 
-### Try Different Models
-
-Edit `main.py`:
-```python
-predictor = FactorPredictor(model_type='gradient_boosting')  # or 'ridge', 'lasso'
-```
-
 ### Adjust Train/Val/Test Split
 
 Edit `main.py`:
@@ -266,17 +257,6 @@ X_train, X_val, X_test, y_train, y_val, y_test, ... = \
     predictor.train_val_test_split_temporal(X, y, dates, 
                                             train_ratio=0.8,  # 80% train
                                             val_ratio=0.1)    # 10% val, 10% test
-```
-
-### Add More Lagged Features
-
-Edit `main.py`:
-```python
-factor_ml_dataset = build_enhanced_factor_ml_dataset(
-    fred_api_key=fred_api_key,
-    factor_lags=[1, 2, 3, 6, 9, 12, 24],  # Add 9 and 24-month lags
-    out_path="data/processed/factor_ml_dataset_enhanced.csv"
-)
 ```
 
 ---
@@ -313,13 +293,6 @@ tqdm>=4.65.0
 fredapi>=0.5.0  # Optional, for full macro features
 ```
 
-Install via:
-```bash
-conda env create -f environment.yml
-# or
-pip install -r requirements.txt
-```
-
 ---
 
 ## 📚 References & Citations
@@ -349,17 +322,6 @@ OpenAI. 2025. ChatGPT (GPT-4). Accessed October-December 2025. https://chat.open
 Anthropic. 2025. Claude (Claude 3.5 Sonnet). Accessed December 11, 2025. https://claude.ai/
 
 Microsoft. 2025. GitHub Copilot (GPT-4o mini). Accessed October-December 2025. https://github.com/features/copilot
-
----
-
-## 🎯 Future Improvements
-
-1. **Deep Learning**: Try LSTM/GRU networks for time series modeling
-2. **More Macro Features**: Add housing data, consumer sentiment, PMI indices
-3. **Alternative Data**: Include sentiment from news, social media, or earnings calls
-4. **Ensemble Methods**: Combine multiple models for better predictions
-5. **Real-time Updates**: Deploy as API for live factor predictions
-6. **Portfolio Optimization**: Use predictions to build optimal factor-tilted portfolios
 
 ---
 
