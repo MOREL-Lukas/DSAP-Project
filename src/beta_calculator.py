@@ -288,14 +288,14 @@ def plot_beta_distribution(betas_df, save_path="results/beta_distribution.png"):
     
     # Beta vs R²
     ax2 = axes[1]
-    scatter = ax2.scatter(betas_df['Beta'], betas_df['R²'], 
-                         alpha=0.5, s=30, c=betas_df['Beta'], cmap='coolwarm')
-    ax2.axvline(1.0, color='red', linestyle='--', linewidth=1, alpha=0.5)
+    ax2.scatter(betas_df['Beta'], betas_df['R²'], 
+                alpha=0.5, s=30, color='steelblue', edgecolors='navy', linewidth=0.5)
+    ax2.axvline(1.0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Market Beta = 1')
     ax2.set_xlabel('Beta', fontsize=12)
     ax2.set_ylabel('R² (Model Fit)', fontsize=12)
     ax2.set_title('Beta vs Model Quality', fontsize=14, fontweight='bold')
+    ax2.legend()
     ax2.grid(True, alpha=0.3)
-    plt.colorbar(scatter, ax=ax2, label='Beta')
     
     plt.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)

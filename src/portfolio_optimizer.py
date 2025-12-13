@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from src.factor_predictor import FactorPredictor
+from src.ml_models import FactorPredictor
 
 FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
@@ -295,27 +295,40 @@ def estimate_ff5_betas(
 # Factor premia with ML-overlay on HML
 # ======================================================================
 
-def compute_factor_premia_with_hml_overlay(
+
+def compute_factor_premia_with_ml_overlay(
     ff_path: str,
     factor_ml_dataset_path: str,
-    best_model: FactorPredictor,
-    lambda_hml: float = 0.2,
+    default_model: FactorPredictor,
+    overlay_factors: Optional[list[str]] = None,
+    lambda_overlay: float = 0.2,
+    per_factor_lambda: Optional[dict[str, float]] = None,
+    per_factor_model: Optional[dict[str, FactorPredictor]] = None,
+    verbose: bool = False,
 ) -> pd.Series:
     """
     Compute expected factor premia E[f_{t+1}] using:
-    - Historical means for all factors
-    - ML overlay ONLY on HML, heavily shrunk toward historical mean
+      - Historical means for all factors
+      - Optional ML overlay for a subset of factors, shrunk toward historical mean.
 
     Parameters
     ----------
     ff_path : str
-        Path to Fama-French CSV.
+        Path to Fama-French factor CSV.
     factor_ml_dataset_path : str
-        Path to enhanced factor ML dataset (same as used by FactorPredictor).
-    best_model : FactorPredictor
-        Already-trained ML predictor from evaluate_all_models.
-    lambda_hml : float
-        Shrinkage parameter in [0, 1]. 0 = pure historical mean, 1 = pure ML HML.
+        Path to ML dataset (features aligned to factor targets).
+    default_model : FactorPredictor
+        Model used for overlays unless per_factor_model provides a factor-specific model.
+    overlay_factors : list[str] | None
+        Factors to overlay. If None or empty, no overlays are applied.
+    lambda_overlay : float
+        Shrinkage weight toward ML forecast (0=all historical mean, 1=all ML).
+    per_factor_lambda : dict[str,float] | None
+        Optional per-factor shrinkage weights. Overrides lambda_overlay when provided.
+    per_factor_model : dict[str,FactorPredictor] | None
+        Optional per-factor model map. If provided and contains factor, that model is used.
+    verbose : bool
+        If True, print detailed overlay diagnostics.
 
     Returns
     -------
@@ -323,37 +336,82 @@ def compute_factor_premia_with_hml_overlay(
         Expected factor premia indexed by FACTOR_COLS.
     """
 
-    print("\n" + "=" * 80)
-    print("EXPECTED FACTOR PREMIA (HISTORICAL + ML HML OVERLAY)")
-    print("=" * 80)
+    overlay_factors = overlay_factors or []
+    per_factor_lambda = per_factor_lambda or {}
+    per_factor_model = per_factor_model or {}
 
     # 1) Historical means from Fama-French data
     ff = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
     hist_means = ff[FACTOR_COLS].mean()
-    print("\nHistorical factor means (monthly):")
-    for fac in FACTOR_COLS:
-        print(f"  {fac:7s}: μ = {hist_means[fac]:+.4f} ({hist_means[fac]*100:+.2f}%)")
-
     mu_f = hist_means.copy()
 
-    # 2) ML prediction for HML using best_model on latest feature row
-    print("\nComputing ML-based overlay for HML...")
-    X_all, y_all, dates_all = best_model.prepare_data(factor_ml_dataset_path)
+    if verbose:
+        print("\n" + "=" * 80)
+        title = "EXPECTED FACTOR PREMIA (HISTORICAL + ML OVERLAY)"
+        print(title)
+        print("=" * 80)
+        print("\nHistorical factor means (monthly):")
+        for fac in FACTOR_COLS:
+            print(f"  {fac:7s}: μ = {hist_means[fac]:+.4f} ({hist_means[fac]*100:+.2f}%)")
 
+    if not overlay_factors:
+        return mu_f
+
+    # 2) Prepare latest feature row once for the default model
+    # (FactorPredictor.prepare_data reads the dataset and returns X/y/dates)
+    X_all, _, _ = default_model.prepare_data(factor_ml_dataset_path)
     current_features = X_all.iloc[-1]
-    hml_pred = best_model.predict_next_month(current_features)["HML"]
 
-    print(f"  ML HML forecast:        {hml_pred:+.4f} ({hml_pred*100:+.2f}%)")
-    print(f"  Historical HML mean:    {hist_means['HML']:+.4f} ({hist_means['HML']*100:+.2f}%)")
-    hml_shrunk = (1 - lambda_hml) * hist_means["HML"] + lambda_hml * hml_pred
-    print(
-        f"  Shrunk HML premium (λ={lambda_hml:.2f}): "
-        f"{hml_shrunk:+.4f} ({hml_shrunk*100:+.2f}%)"
-    )
+    # 3) Apply overlays for selected factors
+    for fac in overlay_factors:
+        if fac not in FACTOR_COLS:
+            continue
 
-    mu_f["HML"] = hml_shrunk
+        model = per_factor_model.get(fac, default_model)
+
+        # If the factor-specific model has a different feature space, re-prepare.
+        if model is not default_model:
+            X_tmp, _, _ = model.prepare_data(factor_ml_dataset_path)
+            feat_row = X_tmp.iloc[-1]
+        else:
+            feat_row = current_features
+
+        pred = model.predict_next_month(feat_row)
+        if fac not in pred:
+            continue
+
+        lam = float(per_factor_lambda.get(fac, lambda_overlay))
+        lam = max(0.0, min(1.0, lam))
+
+        shrunk = (1 - lam) * hist_means[fac] + lam * float(pred[fac])
+        mu_f[fac] = shrunk
+
+        if verbose:
+            print(f"\nOverlay for {fac}:")
+            print(f"  ML forecast:         {float(pred[fac]):+.4f} ({float(pred[fac])*100:+.2f}%)")
+            print(f"  Historical mean:     {hist_means[fac]:+.4f} ({hist_means[fac]*100:+.2f}%)")
+            print(f"  Shrunk (λ={lam:.2f}): {shrunk:+.4f} ({shrunk*100:+.2f}%)")
 
     return mu_f
+
+
+def compute_factor_premia_with_hml_overlay(
+    ff_path: str,
+    factor_ml_dataset_path: str,
+    best_model: FactorPredictor,
+    lambda_hml: float = 0.2,
+) -> pd.Series:
+    """
+    Backward-compatible wrapper: historical means for all factors, ML overlay on HML only.
+    """
+    return compute_factor_premia_with_ml_overlay(
+        ff_path=ff_path,
+        factor_ml_dataset_path=factor_ml_dataset_path,
+        default_model=best_model,
+        overlay_factors=["HML"],
+        lambda_overlay=lambda_hml,
+        verbose=True,
+    )
 
 
 # ======================================================================
@@ -398,6 +456,11 @@ def build_ff5_optimal_portfolio(
     best_model: FactorPredictor,
     lambda_hml: float = 0.2,
     min_obs: int = 36,
+    overlay_factors: Optional[list[str]] = None,
+    lambda_overlay: float = 0.2,
+    per_factor_lambda: Optional[dict[str, float]] = None,
+    per_factor_model: Optional[dict[str, FactorPredictor]] = None,
+    overlay_verbose: bool = False,
 ) -> pd.DataFrame:
     """
     Build the unconstrained FF5 tangency portfolio with an ML HML overlay.
@@ -439,11 +502,15 @@ def build_ff5_optimal_portfolio(
     Sigma_f = build_ff5_factor_model(betas_valid, ff_path=ff_path)
 
     # 3) Expected factor premia μ_f (with HML overlay)
-    mu_f = compute_factor_premia_with_hml_overlay(
+    mu_f = compute_factor_premia_with_ml_overlay(
         ff_path=ff_path,
         factor_ml_dataset_path=factor_ml_dataset_path,
-        best_model=best_model,
-        lambda_hml=lambda_hml,
+        default_model=best_model,
+        overlay_factors=(overlay_factors if overlay_factors is not None else ["HML"]),
+        lambda_overlay=lambda_overlay if overlay_factors is not None else lambda_hml,
+        per_factor_lambda=per_factor_lambda,
+        per_factor_model=per_factor_model,
+        verbose=overlay_verbose,
     )
 
     # 4) Asset expected excess returns μ_R = B μ_f
@@ -495,13 +562,30 @@ def build_ff5_optimal_portfolio(
     mu_mkt = float(ff_full["Mkt-RF"].mean())
     alpha_capm = mu_p - avg_beta_mkt * mu_mkt
 
-    print("\nTop 10 positions in FF5 tangency portfolio:")
+    print("\nTop 5 Long Positions in FF5 tangency portfolio:")
     print("-" * 80)
     print(
-        weights_df[["Weight", "Beta_MKT", "Beta_HML"]]
-        .head(10)
+        weights_df[weights_df["Weight"] > 0][["Weight", "Beta_MKT", "Beta_HML"]]
+        .head(5)
         .to_string(float_format=lambda x: f"{x:+.4f}")
     )
+
+    print("\nTop 5 Short Positions in FF5 tangency portfolio:")
+    print("-" * 80)
+    short_positions = weights_df[weights_df["Weight"] < 0].sort_values("Weight")
+    if len(short_positions) >= 5:
+        print(
+            short_positions[["Weight", "Beta_MKT", "Beta_HML"]]
+            .head(5)
+            .to_string(float_format=lambda x: f"{x:+.4f}")
+        )
+    elif len(short_positions) > 0:
+        print(
+            short_positions[["Weight", "Beta_MKT", "Beta_HML"]]
+            .to_string(float_format=lambda x: f"{x:+.4f}")
+        )
+    else:
+        print("  (No short positions)")
 
     print("\nPortfolio summary:")
     print("-" * 80)
@@ -513,6 +597,20 @@ def build_ff5_optimal_portfolio(
     print(f"  Sharpe ratio:           {sharpe_p:.3f}")
     print(f"  CAPM alpha (monthly):   {alpha_capm:+.4f} ({alpha_capm*100:+.2f}%)")
     print(f"  Number of stocks:       {len(weights_df)}")
+    
+    # Add position summary
+    n_long = (weights_df["Weight"] > 0).sum()
+    n_short = (weights_df["Weight"] < 0).sum()
+    total_long = weights_df[weights_df["Weight"] > 0]["Weight"].sum()
+    total_short = abs(weights_df[weights_df["Weight"] < 0]["Weight"].sum())
+    
+    print("\n" + "-" * 80)
+    print("POSITION SUMMARY:")
+    print("-" * 80)
+    print(f"  Long positions:   {n_long:3d} stocks, total weight: {total_long:+.4f} ({total_long*100:.2f}%)")
+    print(f"  Short positions:  {n_short:3d} stocks, total weight: {-total_short:+.4f} ({-total_short*100:.2f}%)")
+    print(f"  Net exposure:     {total_weight:.4f} ({total_weight*100:.2f}%)")
+    print(f"  Gross exposure:   {total_long + total_short:.4f} ({(total_long + total_short)*100:.2f}%)")
 
     os.makedirs("data/processed", exist_ok=True)
     weights_df.to_csv("data/processed/ff5_optimal_portfolio_weights.csv")
@@ -731,3 +829,181 @@ def backtest_ff5_tangency(
     print(f"\nBacktest results saved to: {out_path}")
 
     return results
+
+
+# ======================================================================
+# Concentrated Portfolio Functions
+# ======================================================================
+
+def build_concentrated_portfolio(
+    returns_path: str,
+    ff_path: str,
+    factor_ml_dataset_path: str,
+    best_model: FactorPredictor,
+    lambda_hml: float = 0.2,
+    min_obs: int = 36,
+    max_stocks: int = 50,
+    filter_method: str = "sharpe",
+    min_r_squared: float = 0.15,
+    overlay_factors: Optional[list[str]] = None,
+    lambda_overlay: float = 0.2,
+    per_factor_lambda: Optional[dict[str, float]] = None,
+    per_factor_model: Optional[dict[str, FactorPredictor]] = None,
+    overlay_verbose: bool = False,
+) -> pd.DataFrame:
+    """
+    Build concentrated FF5 portfolio with stock filtering.
+    
+    Parameters
+    ----------
+    max_stocks : int
+        Maximum number of stocks (default: 50)
+    filter_method : str
+        'sharpe' or 'r2' filtering
+    min_r_squared : float
+        Minimum R² threshold
+    
+    Returns
+    -------
+    weights_df : pd.DataFrame
+        Portfolio weights
+    """
+    
+    # Get betas and factor premia
+    betas_df = estimate_ff5_betas(returns_path, ff_path, min_obs, output_path=None)
+    mu_f = compute_factor_premia_with_ml_overlay(
+        ff_path=ff_path,
+        factor_ml_dataset_path=factor_ml_dataset_path,
+        default_model=best_model,
+        overlay_factors=(overlay_factors if overlay_factors is not None else ["HML"]),
+        lambda_overlay=lambda_overlay if overlay_factors is not None else lambda_hml,
+        per_factor_lambda=per_factor_lambda,
+        per_factor_model=per_factor_model,
+        verbose=overlay_verbose,
+    )
+    
+    # Filter stocks
+    betas_valid = betas_df.dropna(
+        subset=["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]
+    )
+    
+    if filter_method == "sharpe":
+        betas_filtered = _filter_by_sharpe(
+            betas_valid, returns_path, ff_path, max_stocks, min_r_squared
+        )
+    else:  # r2
+        betas_filtered = _filter_by_r2(betas_valid, max_stocks, min_r_squared)
+    
+    # Build portfolio
+    Sigma_f = build_ff5_factor_model(betas_filtered, ff_path)
+    
+    B = betas_filtered[["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]].values
+    mu_f_vec = mu_f[FACTOR_COLS].values.reshape(-1, 1)
+    mu_R = (B @ mu_f_vec).reshape(-1)
+    
+    resid_var = betas_filtered["ResidVar"].fillna(betas_filtered["ResidVar"].median())
+    Omega = np.diag(resid_var.values)
+    Sigma_R = B @ Sigma_f @ B.T + Omega
+    Sigma_R = regularize_covariance(Sigma_R, ridge_ratio=1e-3)
+    
+    inv_Sigma_R = np.linalg.pinv(Sigma_R)
+    raw_w = inv_Sigma_R @ mu_R
+    w_raw = raw_w / raw_w.sum()
+    w_star = apply_weight_constraints(w_raw, max_weight=0.10, max_short=0.30)
+    
+    weights_df = betas_filtered.copy()
+    weights_df["Weight"] = w_star
+    weights_df = weights_df.sort_values("Weight", ascending=False)
+    weights_df = weights_df[np.abs(weights_df['Weight']) >= 0.001]
+    
+    return weights_df
+
+
+def _filter_by_sharpe(betas_df, returns_path, ff_path, max_stocks, min_r_squared):
+    """Filter stocks by historical Sharpe ratio."""
+    betas_filtered = betas_df[betas_df['R_squared'] >= min_r_squared].copy()
+    
+    if len(betas_filtered) <= max_stocks:
+        return betas_filtered
+    
+    returns_df = pd.read_csv(returns_path, parse_dates=["Date"], index_col="Date")
+    ff = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
+    
+    sharpe_ratios = []
+    for ticker in betas_filtered.index:
+        if ticker not in returns_df.columns:
+            sharpe_ratios.append(np.nan)
+            continue
+        
+        data = pd.concat([returns_df[ticker], ff['RF']], axis=1).dropna()
+        if len(data) < 24:
+            sharpe_ratios.append(np.nan)
+            continue
+        
+        excess_ret = data[ticker] - data['RF']
+        mean_ret = excess_ret.mean()
+        std_ret = excess_ret.std()
+        sharpe = (mean_ret / std_ret) * np.sqrt(12) if std_ret > 0 else np.nan
+        sharpe_ratios.append(sharpe)
+    
+    betas_filtered['Sharpe'] = sharpe_ratios
+    betas_with_sharpe = betas_filtered.dropna(subset=['Sharpe'])
+    
+    if len(betas_with_sharpe) < max_stocks:
+        return betas_with_sharpe.drop(columns=['Sharpe'])
+    
+    return betas_with_sharpe.nlargest(max_stocks, 'Sharpe').drop(columns=['Sharpe'])
+
+
+def _filter_by_r2(betas_df, max_stocks, min_r_squared):
+    """Filter stocks by R² (factor model fit)."""
+    betas_filtered = betas_df[betas_df['R_squared'] >= min_r_squared].copy()
+    
+    if len(betas_filtered) <= max_stocks:
+        return betas_filtered
+    
+    return betas_filtered.nlargest(max_stocks, 'R_squared')
+
+
+def compare_portfolio_strategies(
+    full_portfolio: pd.DataFrame,
+    concentrated_sharpe: pd.DataFrame,
+    concentrated_r2: pd.DataFrame,
+    ff_path: str,
+) -> pd.DataFrame:
+    """
+    Quick comparison of portfolio strategies.
+    
+    Returns
+    -------
+    comparison_df : pd.DataFrame
+        Summary statistics comparison
+    """
+    
+    ff_full = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
+    mu_mkt = float(ff_full["Mkt-RF"].mean())
+    
+    results = []
+    
+    for name, portfolio in [
+        ("Full (496)", full_portfolio),
+        ("Sharpe-50", concentrated_sharpe),
+        ("R²-50", concentrated_r2),
+    ]:
+        n_stocks = len(portfolio)
+        weights = portfolio['Weight'].values
+        
+        avg_beta_mkt = (portfolio['Weight'] * portfolio['Beta_MKT']).sum()
+        avg_r2 = (portfolio['Weight'] * portfolio['R_squared']).sum()
+        
+        # Note: Expected return and volatility would require recalculation
+        # For quick comparison, we'll use approximate values
+        
+        results.append({
+            'Strategy': name,
+            'N_Stocks': n_stocks,
+            'Avg_R²': avg_r2,
+            'Portfolio_Beta': avg_beta_mkt,
+        })
+    
+    return pd.DataFrame(results)
