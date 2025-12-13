@@ -336,7 +336,7 @@ This project is for educational purposes. Data sources have their own licenses:
 
 ## 👤 Author
 
-Lukas Morel  
+Lukas Morel
 University Project - Data Science & Applied Programming  
 December 2025
 
@@ -344,4 +344,4 @@ December 2025
 
 ## ⚠️ Disclaimer
 
-This project is for **educational and research purposes only**. The predictions are not investment advice. Past performance does not guarantee future results. Factor returns are notoriously difficult to predict, and even positive R² scores of 5-10% represent only modest predictive power. Always consult a financial advisor before making investment decisions.
+This project is for **educational and research purposes only**. The predictions are not investment advice. Past performance does not guarantee future results. Always consult a financial advisor before making investment decisions.
