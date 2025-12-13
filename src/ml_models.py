@@ -38,28 +38,45 @@ class FactorPredictor:
         self.target_names = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
         
     def _create_model(self):
-        """Create a fresh model instance."""
+        """Create a fresh model instance with conservative, OOS-stable defaults."""
+        
         if self.model_type == 'random_forest':
             return RandomForestRegressor(
-                n_estimators=100,
-                max_depth=10,
-                min_samples_split=5,
+                n_estimators=600,          # variance reduction
+                max_depth=3,               # strong regularization
+                min_samples_leaf=30,       # critical for macro data
+                min_samples_split=40,
+                max_features=0.5,          # decorrelate trees
                 random_state=42,
                 n_jobs=-1
             )
+
         elif self.model_type == 'gradient_boosting':
             return GradientBoostingRegressor(
-                n_estimators=100,
-                max_depth=5,
-                learning_rate=0.1,
+                n_estimators=500,
+                learning_rate=0.03,        # slow learning = stability
+                max_depth=2,
+                min_samples_leaf=20,
+                subsample=0.7,             # stochastic boosting
                 random_state=42
             )
+
         elif self.model_type == 'ridge':
-            return Ridge(alpha=1.0, random_state=42)
+            return Ridge(
+                alpha=10.0,                # stronger shrinkage
+                random_state=42
+            )
+
         elif self.model_type == 'lasso':
-            return Lasso(alpha=0.0001, random_state=42, max_iter=10000)
+            return Lasso(
+                alpha=0.001,               # avoid instability
+                max_iter=20000,
+                random_state=42
+            )
+
         else:
             raise ValueError(f"Unknown model_type: {self.model_type}")
+
     
     def prepare_data(self, dataset_path="data/processed/factor_ml_dataset.csv"):
         """Load and prepare the dataset."""

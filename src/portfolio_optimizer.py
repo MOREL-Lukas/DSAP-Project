@@ -395,23 +395,6 @@ def compute_factor_premia_with_ml_overlay(
     return mu_f
 
 
-def compute_factor_premia_with_hml_overlay(
-    ff_path: str,
-    factor_ml_dataset_path: str,
-    best_model: FactorPredictor,
-    lambda_hml: float = 0.2,
-) -> pd.Series:
-    """
-    Backward-compatible wrapper: historical means for all factors, ML overlay on HML only.
-    """
-    return compute_factor_premia_with_ml_overlay(
-        ff_path=ff_path,
-        factor_ml_dataset_path=factor_ml_dataset_path,
-        default_model=best_model,
-        overlay_factors=["HML"],
-        lambda_overlay=lambda_hml,
-        verbose=True,
-    )
 
 
 # ======================================================================
@@ -454,7 +437,6 @@ def build_ff5_optimal_portfolio(
     ff_path: str,
     factor_ml_dataset_path: str,
     best_model: FactorPredictor,
-    lambda_hml: float = 0.2,
     min_obs: int = 36,
     overlay_factors: Optional[list[str]] = None,
     lambda_overlay: float = 0.2,
@@ -506,8 +488,8 @@ def build_ff5_optimal_portfolio(
         ff_path=ff_path,
         factor_ml_dataset_path=factor_ml_dataset_path,
         default_model=best_model,
-        overlay_factors=(overlay_factors if overlay_factors is not None else ["HML"]),
-        lambda_overlay=lambda_overlay if overlay_factors is not None else lambda_hml,
+        overlay_factors=overlay_factors,
+        lambda_overlay=lambda_overlay,
         per_factor_lambda=per_factor_lambda,
         per_factor_model=per_factor_model,
         verbose=overlay_verbose,
@@ -840,7 +822,6 @@ def build_concentrated_portfolio(
     ff_path: str,
     factor_ml_dataset_path: str,
     best_model: FactorPredictor,
-    lambda_hml: float = 0.2,
     min_obs: int = 36,
     max_stocks: int = 50,
     filter_method: str = "sharpe",
@@ -875,8 +856,8 @@ def build_concentrated_portfolio(
         ff_path=ff_path,
         factor_ml_dataset_path=factor_ml_dataset_path,
         default_model=best_model,
-        overlay_factors=(overlay_factors if overlay_factors is not None else ["HML"]),
-        lambda_overlay=lambda_overlay if overlay_factors is not None else lambda_hml,
+        overlay_factors=overlay_factors,
+        lambda_overlay=lambda_overlay,
         per_factor_lambda=per_factor_lambda,
         per_factor_model=per_factor_model,
         verbose=overlay_verbose,

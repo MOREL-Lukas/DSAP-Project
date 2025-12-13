@@ -7,16 +7,11 @@ import zipfile
 import time
 from io import BytesIO
 import numpy as np
-import pandas as pd
+import pandas as pd 
 import requests
 import yfinance as yf
 from tqdm import tqdm
 import random
-
-
-# ============================================================================
-# DATA LOADING
-# ============================================================================
 
 def load_sp500_companies():
     """
@@ -128,7 +123,6 @@ def load_rf():
 def extract_monthly_close(raw: pd.DataFrame) -> pd.DataFrame:
     """
     Extract the monthly 'Close' price for each ticker from the yfinance output.
-    Assumes columns are a MultiIndex: (ticker, field).
     """
     monthly_prices = {}
 
@@ -159,7 +153,6 @@ def _download_in_chunks(
 ):
     """
     Download yfinance data in chunks with retries.
-    Chunking + threads=False is the most reliable way to reduce curl(28) timeouts.
     """
     all_chunks = []
 
@@ -196,7 +189,6 @@ def _download_in_chunks(
             time.sleep(sleep_s)
 
         if last_err is not None:
-            # We do NOT abort the whole pipeline – we keep going.
             print(f"\nWarning: chunk {i//chunk_size + 1} failed after {max_retries} retries: {last_err}")
 
     if not all_chunks:
@@ -213,9 +205,6 @@ def load_sp500_monthly_returns(
     force_download: bool = False,
 ):
     """
-    Cache-first loader:
-    - If data/processed/sp500_monthly_returns.csv exists and force_download=False,
-      load it and return immediately (NO Yahoo calls, NO timeouts).
     - Otherwise download with chunking + retries + conservative concurrency.
     """
 
@@ -382,11 +371,6 @@ def classify_sp500_factors(
     merged.to_csv(output_path, index=False)
     return merged
 
-
-# ============================================================================
-# FEATURE ENGINEERING
-# ============================================================================
-
 def build_factor_ml_dataset(
     returns_path="data/processed/sp500_monthly_returns.csv",
     class_path="data/processed/sp500_ff5_classifications.csv",
@@ -451,9 +435,9 @@ def build_factor_ml_dataset(
     ff = pd.read_csv(factor_path, parse_dates=["Date"]).set_index("Date").sort_index()
     dataset = features.join(ff, how="inner").sort_index()
 
-    # 3-month ahead targets
+    # 6-month ahead targets
     factors = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
-    dataset[factors] = dataset[factors].shift(-3)
+    dataset[factors] = dataset[factors].shift(-6)
     dataset = dataset.dropna(subset=factors)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -541,7 +525,7 @@ def build_enhanced_factor_ml_dataset(
     factor_path="data/processed/Fama_French.csv",
     out_path="data/processed/factor_ml_dataset_enhanced.csv",
     fred_api_key=None,
-    factor_lags=[1, 2, 3, 6, 12],
+    factor_lags=[3, 6, 12],
 ):
     """
     Enhanced dataset with lagged factors, market conditions, and macro features.
