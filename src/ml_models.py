@@ -1,7 +1,3 @@
-"""
-ML Models Module
-Combines factor prediction, model evaluation, and comparison
-"""
 import pandas as pd
 import numpy as np
 import os
@@ -13,11 +9,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import warnings
 warnings.filterwarnings('ignore')
-
-
-# ============================================================================
-# FACTOR PREDICTOR
-# ============================================================================
 
 class FactorPredictor:
     """Machine Learning model to predict Fama-French 5 factors."""
@@ -77,18 +68,17 @@ class FactorPredictor:
         else:
             raise ValueError(f"Unknown model_type: {self.model_type}")
 
-    
     def prepare_data(self, dataset_path="data/processed/factor_ml_dataset.csv"):
-        """Load and prepare the dataset."""
+        """
+        Load and prepare the dataset.
+        """
         df = pd.read_csv(dataset_path, parse_dates=['Date'])
         df = df.set_index('Date').sort_index()
         
         # Separate features from targets
         feature_cols = [col for col in df.columns if col not in self.target_names]
-        
         X = df[feature_cols].copy()
         y = df[self.target_names].copy()
-        
         self.feature_names = X.columns.tolist()
         
         print(f"Dataset shape: {df.shape}")
@@ -103,15 +93,12 @@ class FactorPredictor:
         n = len(X)
         train_end = int(n * train_ratio)
         val_end = int(n * (train_ratio + val_ratio))
-        
         X_train = X.iloc[:train_end]
         y_train = y.iloc[:train_end]
         dates_train = dates[:train_end]
-        
         X_val = X.iloc[train_end:val_end]
         y_val = y.iloc[train_end:val_end]
         dates_val = dates[train_end:val_end]
-        
         X_test = X.iloc[val_end:]
         y_test = y.iloc[val_end:]
         dates_test = dates[val_end:]
@@ -122,48 +109,39 @@ class FactorPredictor:
         
         return X_train, X_val, X_test, y_train, y_val, y_test, dates_train, dates_val, dates_test
     
-    def fit(self, X_train, y_train, verbose=False):
+    def fit(self, X_train, y_train):
         """Train separate models for each factor."""
         X_train_scaled = self.scaler.fit_transform(X_train)
-        
-        if verbose:
-            print(f"\nTraining {self.model_type} models...")
+        print(f"\nTraining {self.model_type} models...")
         
         for factor in self.target_names:
-            if verbose:
-                print(f"  Training {factor}...", end=' ')
+            print(f"  Training {factor}...", end=' ')
             
             model = self._create_model()
             model.fit(X_train_scaled, y_train[factor])
             self.models[factor] = model
             
-            if verbose:
-                print("✓")
+            print("✓")
         
-        if verbose:
-            print("Training complete!")
+        print("Training complete!")
     
     def predict(self, X):
         """Predict all factors for new data."""
         X_scaled = self.scaler.transform(X)
         predictions = pd.DataFrame(index=X.index)
-        
         for factor in self.target_names:
             predictions[factor] = self.models[factor].predict(X_scaled)
-        
         return predictions
     
     def evaluate(self, X_test, y_test, dataset_name="Test"):
         """Evaluate model performance."""
         y_pred = self.predict(X_test)
-        
         metrics = []
         for factor in self.target_names:
             mse = mean_squared_error(y_test[factor], y_pred[factor])
             rmse = np.sqrt(mse)
             mae = mean_absolute_error(y_test[factor], y_pred[factor])
             r2 = r2_score(y_test[factor], y_pred[factor])
-            
             metrics.append({
                 'Factor': factor,
                 'RMSE': rmse,
@@ -204,29 +182,23 @@ class FactorPredictor:
         """Plot actual vs predicted values."""
         fig, axes = plt.subplots(3, 2, figsize=(15, 12))
         axes = axes.flatten()
-        
         for i, factor in enumerate(self.target_names):
             ax = axes[i]
-            
             ax.plot(dates_test, y_test[factor], label='Actual', linewidth=2)
             ax.plot(dates_test, y_pred[factor], label='Predicted', 
                    linewidth=2, alpha=0.7)
-            
             ax.set_title(f'{factor} - Actual vs Predicted', fontsize=12, fontweight='bold')
             ax.set_xlabel('Date')
             ax.set_ylabel('Return')
             ax.legend()
             ax.grid(True, alpha=0.3)
-            
             corr = np.corrcoef(y_test[factor], y_pred[factor])[0, 1]
             ax.text(0.02, 0.98, f'Corr: {corr:.3f}', 
                    transform=ax.transAxes, 
                    verticalalignment='top',
                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-        
         axes[5].axis('off')
         plt.tight_layout()
-        
         os.makedirs('results', exist_ok=True)
         plt.savefig('results/factor_predictions.png', dpi=300, bbox_inches='tight')
         print("\nPlot saved to: results/factor_predictions.png")
@@ -236,7 +208,6 @@ class FactorPredictor:
         """Predict factors for the next month."""
         if isinstance(current_features, dict):
             current_features = pd.Series(current_features)
-        
         missing = set(self.feature_names) - set(current_features.index)
         if missing:
             raise ValueError(f"Missing features: {missing}")
@@ -246,15 +217,9 @@ class FactorPredictor:
         
         return predictions.iloc[0]
 
-
-# ============================================================================
-# MODEL EVALUATION
-# ============================================================================
-
 def evaluate_model(model, X, y, model_name="Model", split="Test"):
     """Evaluate a single model."""
     y_pred = model.predict(X)
-    
     metrics = []
     target_names = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
     
@@ -263,7 +228,6 @@ def evaluate_model(model, X, y, model_name="Model", split="Test"):
         rmse = np.sqrt(mse)
         mae = mean_absolute_error(y[factor], y_pred[factor])
         r2 = r2_score(y[factor], y_pred[factor])
-        
         metrics.append({
             'Model': model_name,
             'Split': split,
@@ -275,58 +239,84 @@ def evaluate_model(model, X, y, model_name="Model", split="Test"):
     
     return pd.DataFrame(metrics)
 
+def compare_all_models(
+    X_train, X_val, X_test, y_train, y_val, y_test,
+    dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
+):
+    """Compare all ML models and select the best model on Validation R² (mean across factors)."""
 
-def compare_all_models(X_train, X_val, X_test, y_train, y_val, y_test, 
-                       dataset_path="data/processed/factor_ml_dataset_enhanced.csv", 
-                       verbose=False):
-    """Compare all ML models."""
-    
-    if verbose:
-        print("="*80)
-        print("ML MODELS COMPARISON")
-        print("="*80)
-    
+    print("=" * 80)
+    print("ML MODELS COMPARISON")
+    print("=" * 80)
+
     models_to_test = {
-        'Random Forest': 'random_forest',
-        'Gradient Boosting': 'gradient_boosting',
-        'Ridge Regression': 'ridge',
-        'Lasso Regression': 'lasso'
+        "Random Forest": "random_forest",
+        "Gradient Boosting": "gradient_boosting",
+        "Ridge Regression": "ridge",
+        "Lasso Regression": "lasso",
     }
-    
+
     all_results = []
     trained_models = {}
-    
+
     for i, (model_name, model_type) in enumerate(models_to_test.items(), start=1):
-        if verbose:
-            print(f"\n[{i}/4] Training and evaluating {model_name}...")
-        
+        print(f"\n[{i}/{len(models_to_test)}] Training and evaluating {model_name}...")
+
         try:
             predictor = FactorPredictor(model_type=model_type)
+
+            # Ensure scaler + model are fitted consistently
             predictor.feature_names = X_train.columns.tolist()
             predictor.scaler.fit(X_train)
-            predictor.fit(X_train, y_train, verbose=False)
-            
-            metrics_val = evaluate_model(predictor, X_val, y_val, model_name, split="Val")
-            metrics_test = evaluate_model(predictor, X_test, y_test, model_name, split="Test")
-            metrics = pd.concat([metrics_val, metrics_test], ignore_index=True)
-            all_results.append(metrics)
-            
+            predictor.fit(X_train, y_train)
+
+            metrics_val = evaluate_model(predictor, X_val, y_val, model_name=model_name, split="Val")
+            metrics_test = evaluate_model(predictor, X_test, y_test, model_name=model_name, split="Test")
+
+            all_results.append(pd.concat([metrics_val, metrics_test], ignore_index=True))
             trained_models[model_name] = predictor
-            
+
+            val_r2 = metrics_val["R²"].mean()
+            test_r2 = metrics_test["R²"].mean()
+            print(f"  ✓ OK | mean Val R²={val_r2:+.4f} | mean Test R²={test_r2:+.4f}")
+
         except Exception as e:
             print(f"Warning: {model_name} failed: {e}")
             continue
-    
+
+    # ---- Guard rails: if nothing trained successfully, fail clearly ----
+    if not all_results or not trained_models:
+        raise RuntimeError(
+            "compare_all_models(): No models were successfully trained/evaluated. "
+            "Check the warnings above for the root cause (data shape, NaNs, scaler, etc.)."
+        )
+
     results_df = pd.concat(all_results, ignore_index=True)
-    
-    avg_r2_by_model = results_df.groupby('Model')['R²'].mean()
+
+    # ---- Select best on Validation only ----
+    if "Split" not in results_df.columns:
+        raise RuntimeError("compare_all_models(): results_df missing required column 'Split'.")
+
+    val_df = results_df[results_df["Split"] == "Val"].copy()
+    if val_df.empty:
+        raise RuntimeError("compare_all_models(): Validation split produced no rows; cannot select best model.")
+
+    avg_r2_by_model = val_df.groupby("Model")["R²"].mean()
+
+    # Keep only models that actually exist in trained_models (defensive)
+    avg_r2_by_model = avg_r2_by_model[avg_r2_by_model.index.isin(trained_models.keys())]
+    if avg_r2_by_model.empty:
+        raise RuntimeError(
+            "compare_all_models(): No validation R² entries matched trained_models keys. "
+            "Possible mismatch between 'Model' labels and trained_models dict keys."
+        )
+
     best_model_name = avg_r2_by_model.idxmax()
     best_model = trained_models[best_model_name]
-    
-    if verbose:
-        print(f"\n✓ Best model: {best_model_name} (Avg R² = {avg_r2_by_model[best_model_name]:+.4f})")
-    
+    print(f"\n✓ Best model (Val): {best_model_name} (Avg Val R² = {avg_r2_by_model[best_model_name]:+.4f})")
+
     return results_df, best_model, trained_models
+
 
 
 def print_comparison_table(results_df, split="Test"):
@@ -338,12 +328,10 @@ def print_comparison_table(results_df, split="Test"):
     df = results_df.copy()
     if "Split" in df.columns:
         df = df[df["Split"] == split].copy()
-
     r2_pivot = df.pivot(index="Factor", columns="Model", values="R²")
 
     print("\nR² Scores (higher is better):")
     print(r2_pivot.to_string(float_format=lambda x: f"{x:+.4f}"))
-
     print("\n" + "-"*80)
     print("BEST MODEL FOR EACH FACTOR:")
     print("-"*80)
@@ -376,8 +364,6 @@ def plot_model_comparison(results_df, split="Test", save_path="results/model_com
         r2_pivot = r2_pivot[cols]
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-    # Grouped bar chart
     ax1 = axes[0]
     r2_pivot.plot(kind="bar", ax=ax1, width=0.8)
     ax1.set_title(f"R² Scores by Factor and Model ({split})", fontsize=14, fontweight="bold")
@@ -409,42 +395,31 @@ def plot_model_comparison(results_df, split="Test", save_path="results/model_com
     print(f"\nComparison plot saved to: {save_path}")
     plt.close()
 
-
 def save_detailed_results(results_df, save_path="results/model_comparison_detailed.csv"):
     """Save detailed comparison results to CSV."""
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     results_df.to_csv(save_path, index=False)
     print(f"Detailed results saved to: {save_path}")
 
-
-def evaluate_all_models(dataset_path="data/processed/factor_ml_dataset_enhanced.csv", 
-                       verbose=False):
+def evaluate_all_models(dataset_path="data/processed/factor_ml_dataset_enhanced.csv"):
     """Complete evaluation pipeline."""
-    
-    if verbose:
-        print("\n" + "="*80)
-        print("STEP 5: ML MODELS EVALUATION")
-        print("="*80)
-    
+    print("\n" + "="*80)
+    print("STEP 5: ML MODELS EVALUATION")
+    print("="*80)
+
     temp_predictor = FactorPredictor()
     X, y, dates = temp_predictor.prepare_data(dataset_path)
-    
     X_train, X_val, X_test, y_train, y_val, y_test, dates_train, dates_val, dates_test = \
         temp_predictor.train_val_test_split_temporal(X, y, dates, train_ratio=0.7, val_ratio=0.2)
-    
     results_df, best_model, trained_models = compare_all_models(
         X_train, X_val, X_test, y_train, y_val, y_test, 
-        dataset_path, verbose=verbose
+        dataset_path
     )
-    
-    if verbose:
-        print_comparison_table(results_df)
+    print_comparison_table(results_df)
     
     plot_model_comparison(results_df, split="Test", save_path="results/model_comparison.png")
     plot_model_comparison(results_df, split="Val", save_path="results/model_comparison_val.png")
-    
     save_detailed_results(results_df)
-    
     return results_df, best_model, trained_models, X_train, X_val, X_test, y_train, y_val, y_test
 
 
@@ -453,7 +428,6 @@ def compare_mc_to_best_ml(results_df, split="Test"):
     print("\n" + "="*80)
     print(f"MONTE CARLO vs BEST ML MODEL - DETAILED COMPARISON ({split.upper()})")
     print("="*80)
-
     df = results_df.copy()
     if "Split" in df.columns:
         df = df[df["Split"] == split].copy()
@@ -480,13 +454,10 @@ def compare_mc_to_best_ml(results_df, split="Test"):
     print("\n" + "-"*80)
     print("Overall Performance:")
     print("-"*80)
-
     mc_avg = float(r2_pivot["Monte Carlo Simulation"].mean())
     ml_avg = float(r2_pivot[ml_models].max(axis=1).mean())
-
     print(f"Monte Carlo average R²:  {mc_avg:+.4f}")
     print(f"Best ML average R²:      {ml_avg:+.4f}")
     print(f"Average improvement:     {ml_avg - mc_avg:+.4f}")
-
     wins = int((r2_pivot[ml_models].max(axis=1) > r2_pivot["Monte Carlo Simulation"]).sum())
     print(f"\nML wins on {wins}/5 factors ({wins/5*100:.0f}%)")

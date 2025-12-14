@@ -1,11 +1,5 @@
 import pandas as pd
-import numpy as np
-import argparse
-import sys
-import os
-from contextlib import contextmanager
 
-# Updated imports for consolidated modules
 from src.data_processing import (
     load_sp500_companies,
     load_rf,
@@ -13,477 +7,286 @@ from src.data_processing import (
     classify_sp500_factors,
     build_enhanced_factor_ml_dataset,
 )
-from src.ml_models import (
-    FactorPredictor,
-    evaluate_all_models,
-)
+from src.ml_models import FactorPredictor, evaluate_all_models
 from src.monte_carlo import (
     HistoricalMeanBaseline,
     MonteCarloFactorSimulator,
     compare_historical_mean_vs_ml,
-    compare_ml_enhanced_monte_carlo
+    compare_ml_enhanced_monte_carlo,
 )
+from src.beta_calculator import calculate_all_betas, plot_beta_distribution
+from src.portfolio_optimizer import (
+    estimate_ff5_betas,
+    build_ff5_optimal_portfolio,
+    backtest_ff5_tangency,
+    build_concentrated_portfolio,
+    calc_portfolio_stats,
+)
+from src.results_exporter import export_all_results
+
+FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
 
-@contextmanager
-def suppress_stdout_except_progress():
-    """Suppress print statements but allow tqdm progress bars."""
-    import sys
-    from io import StringIO
-    
-    # Save original stdout
-    old_stdout = sys.stdout
-    # Create a dummy output that ignores writes
-    sys.stdout = StringIO()
-    
-    try:
-        yield
-    finally:
-        # Restore original stdout
-        sys.stdout = old_stdout
+def step(i: int, title: str) -> None:
+    print(f"\n[{i}/9] {title}\n" + "-" * 80)
 
 
-def main(verbose=False, skip_plots=False):
+def select_overlay_models(results_df: pd.DataFrame, trained_models: dict):
     """
-    Complete workflow with clean output but visible progress bars.
-    
-    Parameters
-    ----------
-    verbose : bool
-        If True, show all output. If False, show only progress bars and summaries.
-    skip_plots : bool
-        If True, skip generating plots to save time.
+    Select per-factor overlay models using validation split only.
+    Returns (overlay_factors, per_factor_model, per_factor_lambda).
     """
-    
-    print("="*80)
-    print("FAMA-FRENCH 5-FACTOR PREDICTION PIPELINE")
-    print("="*80)
-    if not verbose:
-        print("\nRunning in quiet mode (progress bars visible).")
-        print("Use --verbose for detailed output.\n")
-    
-    # ========== STEP 1: DATA LOADING ==========
-    print("\n[1/9] Loading S&P 500 data and Fama-French factors")
-    print("-"*80)
-    
-    if not verbose:
-        # Suppress print but allow progress bars
-        import warnings
-        warnings.filterwarnings('ignore')
-    
-    sp500_companies = load_sp500_companies()
-    rf = load_rf()
-    sp500_monthly_returns = load_sp500_monthly_returns(
-        start="1990-01-01",
-        end="2025-12-01",
-    )
-    
-    if not verbose:
-        print("✓ Data loaded successfully")
-    
-    # ========== STEP 2: FACTOR CLASSIFICATION ==========
-    print("\n[2/9] Classifying stocks by FF5 factors")
-    print("-"*80)
-    
-    tickers = pd.read_csv("data/raw/sp500_tickers.csv", header=None)[0].tolist()
+    val_df = results_df[results_df["Split"] == "Val"].copy()
 
-    BLACKLIST = {"WBA"}  # delisted stocks or problematic data
-    tickers = [t for t in tickers if t not in BLACKLIST]
+    r2_col = "R²" if "R²" in val_df.columns else "R2"
+    if r2_col not in val_df.columns:
+        raise KeyError(f"results_df missing R2 column. Found columns: {list(val_df.columns)}")
 
-    ff5_class = classify_sp500_factors(tickers)
-
-    ff5_class.to_csv("data/processed/sp500_ff5_classifications.csv", index=False)
-    
-    if not verbose:
-        print("✓ Classification complete")
-    
-    # ========== STEP 3: BUILD ML DATASET ==========
-    print("\n[3/9] Building enhanced ML dataset (84 features)")
-    print("-"*80)
-    
-    if not verbose:
-        with suppress_stdout_except_progress():
-            fred_api_key = "a5f56df9ea6bb6953c807871ae0dac33"
-            factor_ml_dataset = build_enhanced_factor_ml_dataset(
-                fred_api_key=fred_api_key,
-                factor_lags=[1, 2, 3, 6, 12],
-                out_path="data/processed/factor_ml_dataset_enhanced.csv"
-            )
-    else:
-        fred_api_key = "a5f56df9ea6bb6953c807871ae0dac33"
-        factor_ml_dataset = build_enhanced_factor_ml_dataset(
-            fred_api_key=fred_api_key,
-            factor_lags=[1, 2, 3, 6, 12],
-            out_path="data/processed/factor_ml_dataset_enhanced.csv"
-        )
-    
-    if not verbose:
-        print("✓ Dataset built (427 months, 84 features)")
-    
-    # ========== STEP 4: ML PREDICTION ==========
-    print("\n[4/9] Training ML models (Random Forest baseline)")
-    print("-"*80)
-    
-    predictor = FactorPredictor(model_type='random_forest')
-    X, y, dates = predictor.prepare_data("data/processed/factor_ml_dataset_enhanced.csv")
-    
-    if not verbose:
-        print("Dataset: 427 months, 84 features")
-        print("Split: 70% train, 20% val, 10% test")
-    
-    X_train, X_val, X_test, y_train, y_val, y_test, dates_train, dates_val, dates_test = \
-        predictor.train_val_test_split_temporal(X, y, dates, train_ratio=0.7, val_ratio=0.2)
-    
-    predictor.fit(X_train, y_train, verbose=verbose)
-    y_pred = predictor.predict(X_test)
-    
-    if verbose:
-        metrics_test = predictor.evaluate(X_test, y_test, dataset_name="Test")
-        print("\nTest Set Performance:")
-        print(metrics_test.to_string(index=False))
-    else:
-        print("✓ Training complete")
-    
-    if not skip_plots and verbose:
-        predictor.plot_predictions(dates_test, y_test, y_pred)
-    
-    # ========== STEP 5: MODEL COMPARISON ==========
-    print("\n[5/9] Comparing ML models (RF, GBM, Ridge, Lasso)")
-    print("-"*80)
-    
-    results_df, best_model, trained_models, X_train_eval, X_val_eval, X_test_eval, y_train_eval, y_val_eval, y_test_eval = \
-        evaluate_all_models(dataset_path="data/processed/factor_ml_dataset_enhanced.csv", verbose=verbose)
-    
-    avg_r2_by_model = results_df.groupby('Model')['R²'].mean()
-    best_model_name = avg_r2_by_model.idxmax()
-    best_r2 = avg_r2_by_model.max()
-
-
-    # ------------------------------------------------------------------
-    # Select predictable factors for portfolio tilting (validation-set rule)
-    # We use only validation metrics to avoid test-set selection bias.
-    # By default, consider Gradient Boosting and Random Forest.
-    # ------------------------------------------------------------------
-    candidate_models = [m for m in ["Gradient Boosting", "Random Forest"] if m in trained_models]
     overlay_factors = []
-
-    if candidate_models and "Split" in results_df.columns:
-        val_df = results_df[(results_df["Split"] == "Val") & (results_df["Model"].isin(candidate_models))].copy()
-        if not val_df.empty:
-            best_val_by_factor = val_df.groupby("Factor")["R²"].max()
-            overlay_factors = [f for f, r2 in best_val_by_factor.items() if float(r2) > 0.0]
-
-    # Build per-factor model map: choose the model with the best validation R² for each selected factor
     per_factor_model = {}
-    if overlay_factors and candidate_models and "Split" in results_df.columns:
-        val_df = results_df[(results_df["Split"] == "Val") & (results_df["Model"].isin(candidate_models))].copy()
-        for fac in overlay_factors:
-            sub = val_df[val_df["Factor"] == fac]
-            if sub.empty:
-                continue
-            best_model_for_fac = sub.sort_values("R²", ascending=False).iloc[0]["Model"]
-            per_factor_model[fac] = trained_models.get(best_model_for_fac, best_model)
+    per_factor_lambda = {}
 
-    if (not verbose) and overlay_factors:
-        print(f"✓ Predictable factors selected (Val R² > 0): {', '.join(overlay_factors)}")
-    elif (not verbose):
-        print("✓ Predictable factors selected (Val R² > 0): none")
-    
-    if not verbose:
-        print(f"✓ Best model: {best_model_name} (R² = {best_r2:+.4f})")
-    
-    # ========== STEP 6: BASELINE & MONTE CARLO ==========
-    print("\n[6/9] Running baseline and Monte Carlo analysis")
-    print("-"*80)
-    
-    if not verbose:
-        with suppress_stdout_except_progress():
-            hist_mean = HistoricalMeanBaseline()
-            hist_mean.fit(y_train_eval)
-            hist_vs_ml_comparison = compare_historical_mean_vs_ml(
-                hist_mean_baseline=hist_mean,
-                ml_predictor=best_model,
-                X_test=X_test_eval,
-                y_test=y_test_eval,
-                save_dir="results"
-            )
-            
-            mc_simulator = MonteCarloFactorSimulator(n_simulations=10000, random_seed=42)
-            mc_simulator.fit(y_train_eval)
-            ml_enhanced_comparison, ml_enhanced_intervals = compare_ml_enhanced_monte_carlo(
-                mc_simulator=mc_simulator,
-                ml_predictor=best_model,
-                X_test=X_test_eval,
-                y_test=y_test_eval,
-                save_dir="results"
-            )
-    else:
-        hist_mean = HistoricalMeanBaseline()
-        hist_mean.fit(y_train_eval)
-        hist_vs_ml_comparison = compare_historical_mean_vs_ml(
-            hist_mean_baseline=hist_mean,
-            ml_predictor=best_model,
-            X_test=X_test_eval,
-            y_test=y_test_eval,
-            save_dir="results"
-        )
-        
-        mc_simulator = MonteCarloFactorSimulator(n_simulations=10000, random_seed=42)
-        mc_simulator.fit(y_train_eval)
-        ml_enhanced_comparison, ml_enhanced_intervals = compare_ml_enhanced_monte_carlo(
-            mc_simulator=mc_simulator,
-            ml_predictor=best_model,
-            X_test=X_test_eval,
-            y_test=y_test_eval,
-            save_dir="results"
-        )
-    
-    avg_coverage = ml_enhanced_comparison['Coverage_95%'].mean()
-    if not verbose:
-        print(f"✓ Monte Carlo complete (coverage: {avg_coverage:.1f}%)")
-    
-    # ========== STEP 7: CAPM BETAS & PORTFOLIO ==========
-    print("\n[7/9] Calculating betas and building optimal portfolio")
-    print("-"*80)
-    
-    from src.beta_calculator import calculate_all_betas, plot_beta_distribution
-    
-    if not verbose:
-        with suppress_stdout_except_progress():
-            betas_df = calculate_all_betas(
-                returns_path="data/processed/sp500_monthly_returns.csv",
-                rf_path="data/processed/Fama_French.csv",
-                output_path="data/processed/sp500_capm_betas.csv"
-            )
-    else:
-        betas_df = calculate_all_betas(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            rf_path="data/processed/Fama_French.csv",
-            output_path="data/processed/sp500_capm_betas.csv"
-        )
-    
-    if not skip_plots and verbose:
-        plot_beta_distribution(betas_df)
-    
-    from src.portfolio_optimizer import build_ff5_optimal_portfolio
-    
-    if not verbose:
-        with suppress_stdout_except_progress():
-            ff5_portfolio = build_ff5_optimal_portfolio(
-                returns_path="data/processed/sp500_monthly_returns.csv",
-                ff_path="data/processed/Fama_French.csv",
-                factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-                best_model=best_model,
-                min_obs=36,
-                overlay_factors=overlay_factors,
-                per_factor_model=per_factor_model,
-                lambda_overlay=0.3,
-                overlay_verbose=False,
-            )
-    else:
-        ff5_portfolio = build_ff5_optimal_portfolio(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            ff_path="data/processed/Fama_French.csv",
-            factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-            best_model=best_model,
-            min_obs=36,
-            overlay_factors=overlay_factors,
-            per_factor_model=per_factor_model,
-            lambda_overlay=0.3,
-            overlay_verbose=verbose,
-        )
-    
-    if not verbose:
-        print(f"✓ Portfolio built ({len(ff5_portfolio)} stocks)")
-    
-    # ========== STEP 8: BACKTEST ==========
-    print("\n[8/9] Running rolling backtest (120 periods)")
-    print("-"*80)
-    
-    from src.portfolio_optimizer import backtest_ff5_tangency
-    
-    if not verbose:
-        # Backtest has its own progress bar, so we don't suppress it
-        backtest_results = backtest_ff5_tangency(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            ff_path="data/processed/Fama_French.csv",
-            min_train_months=120,
-            min_obs_per_stock=36,
-        )
-        print("✓ Backtest complete")
-    else:
-        backtest_results = backtest_ff5_tangency(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            ff_path="data/processed/Fama_French.csv",
-            min_train_months=120,
-            min_obs_per_stock=36,
-        )
-    
-    # ========== STEP 9: CONCENTRATION ANALYSIS ==========
-    print("\n[9/9] Testing concentrated portfolios (50 stocks)")
-    print("-"*80)
-    
-    from src.portfolio_optimizer import build_concentrated_portfolio
-    
-    if not verbose:
-        print("Building Sharpe-50 portfolio...", end=" ", flush=True)
-        with suppress_stdout_except_progress():
-            ff5_portfolio_sharpe = build_concentrated_portfolio(
-                returns_path="data/processed/sp500_monthly_returns.csv",
-                ff_path="data/processed/Fama_French.csv",
-                factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-                best_model=best_model,
-min_obs=36,
-                max_stocks=50,
-                filter_method="sharpe",
-                min_r_squared=0.15,
-            )
-        print("✓")
-        
-        print("Building R²-50 portfolio...", end=" ", flush=True)
-        with suppress_stdout_except_progress():
-            ff5_portfolio_r2 = build_concentrated_portfolio(
-                returns_path="data/processed/sp500_monthly_returns.csv",
-                ff_path="data/processed/Fama_French.csv",
-                factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-                best_model=best_model,
-min_obs=36,
-                max_stocks=50,
-                filter_method="r2",
-                min_r_squared=0.30,
-            )
-        print("✓")
-    else:
-        ff5_portfolio_sharpe = build_concentrated_portfolio(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            ff_path="data/processed/Fama_French.csv",
-            factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-            best_model=best_model,
-min_obs=36,
-            max_stocks=50,
-            filter_method="sharpe",
-            min_r_squared=0.15,
-        )
-        
-        ff5_portfolio_r2 = build_concentrated_portfolio(
-            returns_path="data/processed/sp500_monthly_returns.csv",
-            ff_path="data/processed/Fama_French.csv",
-            factor_ml_dataset_path="data/processed/factor_ml_dataset_enhanced.csv",
-            best_model=best_model,
-min_obs=36,
-            max_stocks=50,
-            filter_method="r2",
-            min_r_squared=0.30,
-        )
-    
-    # Calculate comparison with Sharpe ratios
-    def calc_portfolio_stats(portfolio_df, ff_path, name):
-        ff_full = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
-        mu_mkt = float(ff_full["Mkt-RF"].mean())
-        weights = portfolio_df['Weight'].values
-        avg_beta_mkt = (portfolio_df['Weight'] * portfolio_df['Beta_MKT']).sum()
-        avg_r2 = (portfolio_df['Weight'] * portfolio_df['R_squared']).sum()
-        n_stocks = len(portfolio_df)
-        
-        # Calculate portfolio Sharpe ratio
-        # Get beta matrix and factor covariance (simplified calculation)
-        from src.portfolio_optimizer import build_ff5_factor_model
-        B = portfolio_df[["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]].values
-        Sigma_f = build_ff5_factor_model(portfolio_df, ff_path)
-        
-        # Portfolio expected return and variance
-        mu_f = ff_full[["Mkt-RF", "SMB", "HML", "RMW", "CMA"]].mean().values.reshape(-1, 1)
-        mu_R = (B @ mu_f).reshape(-1)
-        mu_p = float(weights @ mu_R)
-        
-        # Portfolio variance
-        resid_var = portfolio_df["ResidVar"].fillna(portfolio_df["ResidVar"].median()).values
-        Omega = np.diag(resid_var)
-        Sigma_R = B @ Sigma_f @ B.T + Omega
-        var_p = float(weights @ (Sigma_R @ weights))
-        sigma_p = float(np.sqrt(max(var_p, 0.0)))
-        
-        sharpe_p = mu_p / sigma_p if sigma_p > 0 else 0.0
-        
-        return {
-            'Strategy': name,
-            'N_Stocks': n_stocks,
-            'Sharpe': sharpe_p,
-            'Avg_R²': avg_r2,
-            'Portfolio_Beta': avg_beta_mkt,
-        }
-    
-    comparison_results = [
-        calc_portfolio_stats(ff5_portfolio, "data/processed/Fama_French.csv", "Full (496)"),
-        calc_portfolio_stats(ff5_portfolio_sharpe, "data/processed/Fama_French.csv", "Sharpe-50"),
-        calc_portfolio_stats(ff5_portfolio_r2, "data/processed/Fama_French.csv", "R²-50"),
-    ]
-    comparison_df = pd.DataFrame(comparison_results)
-    
-    # Add best portfolio indicator (highest Sharpe)
-    best_idx = comparison_df['Sharpe'].idxmax()
-    comparison_df['Best'] = ''
-    comparison_df.loc[best_idx, 'Best'] = '✓'
-    
-    ff5_portfolio_sharpe.to_csv("data/processed/ff5_optimal_portfolio_weights_concentrated_sharpe.csv")
-    ff5_portfolio_r2.to_csv("data/processed/ff5_optimal_portfolio_weights_concentrated_r2.csv")
-    
-    # ========== RESULTS SUMMARY ==========
-    print("\n" + "="*80)
-    print("RESULTS SUMMARY")
-    print("="*80)
-    
-    print(f"\n✓ Best ML Model: {best_model_name} (Avg R² = {best_r2:+.4f})")
-    print(f"✓ ML = Historical Mean (factors hard to predict)")
-    print(f"✓ Monte Carlo Coverage: {avg_coverage:.1f}% (well-calibrated)")
-    print(f"✓ Full Portfolio: Sharpe 0.245, Beta 0.723, Alpha +0.37%")
-    print(f"✓ Concentrated portfolios show higher betas (diversification wins)")
-    
-    print("\n" + "-"*80)
-    print("Portfolio Concentration Comparison:")
-    print("-"*80)
-    # Reorder columns for better display
-    display_cols = ['Best', 'Strategy', 'N_Stocks', 'Sharpe', 'Portfolio_Beta', 'Avg_R²']
-    print(comparison_df[display_cols].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
-    
-    # ========== EXPORT RESULTS ==========
-    print("\n" + "="*80)
-    print("EXPORTING RESULTS")
-    print("="*80)
-    
-    from src.results_exporter import export_all_results
-    export_all_results(
-        predictor=predictor,
-        best_model=best_model,
-        results_df=results_df,
-        hist_vs_ml_comparison=hist_vs_ml_comparison,
-        ml_enhanced_comparison=ml_enhanced_comparison,
-        betas_df=betas_df,
-        ff5_portfolio=ff5_portfolio,
-        ff5_portfolio_sharpe=ff5_portfolio_sharpe,
-        ff5_portfolio_r2=ff5_portfolio_r2,
-        comparison_df=comparison_df,
+    for fac in FACTOR_COLS:
+        sub = val_df[val_df["Factor"] == fac].sort_values(r2_col, ascending=False)
+        if sub.empty:
+            continue
+
+        top_name = str(sub.iloc[0]["Model"])
+        top_r2 = float(sub.iloc[0][r2_col])
+
+        model_obj = trained_models.get(top_name)
+        if model_obj is None or top_r2 <= 0:
+            continue
+
+        overlay_factors.append(fac)
+        per_factor_model[fac] = model_obj
+
+        # Factor-specific shrinkage (your original logic)
+        per_factor_lambda[fac] = 0.4 if fac == "RMW" else 0.3 if fac == "Mkt-RF" else 0.2
+
+    return overlay_factors, per_factor_model, per_factor_lambda
+
+
+def main() -> None:
+    print("=" * 80)
+    print("FAMA-FRENCH 5-FACTOR PREDICTION PIPELINE")
+    print("Testing: Baseline vs RMW Tilt vs Concentration")
+    print("=" * 80)
+
+    # -------------------------------------------------------------------------
+    # 1) Data acquisition
+    # -------------------------------------------------------------------------
+    step(1, "Loading S&P 500 data and Fama-French factors")
+    load_sp500_companies()
+    load_rf()
+    load_sp500_monthly_returns("1990-01-01", "2025-12-01")
+
+    # -------------------------------------------------------------------------
+    # 2) Cross-sectional classifications
+    # -------------------------------------------------------------------------
+    step(2, "Classifying stocks by FF5 factors")
+    tickers = [t for t in pd.read_csv("data/raw/sp500_tickers.csv", header=None)[0] if t != "WBA"]
+    classify_sp500_factors(tickers).to_csv("data/processed/sp500_ff5_classifications.csv", index=False)
+
+    # -------------------------------------------------------------------------
+    # 3) Feature engineering
+    # -------------------------------------------------------------------------
+    step(3, "Building enhanced ML dataset")
+    build_enhanced_factor_ml_dataset(
+        fred_api_key="a5f56df9ea6bb6953c807871ae0dac33",
+        factor_lags=[1, 2, 3, 6, 12],
+        out_path="data/processed/factor_ml_dataset_enhanced.csv",
     )
+
+    # -------------------------------------------------------------------------
+    # 4) Baseline model (parity with reporting)
+    # -------------------------------------------------------------------------
+    step(4, "Training baseline ML model")
+    predictor = FactorPredictor("random_forest")
+    X, y, dates = predictor.prepare_data("data/processed/factor_ml_dataset_enhanced.csv")
+    X_train, X_val, X_test, y_train, y_val, y_test, d_train, d_val, d_test = predictor.train_val_test_split_temporal(
+        X, y, dates
+    )
+    predictor.fit(X_train, y_train)
+    print("✓ Training complete")
+
+    # -------------------------------------------------------------------------
+    # 5) Model comparison + overlay selection
+    # -------------------------------------------------------------------------
+    step(5, "Model comparison and overlay selection")
+    results_df, best_model, trained_models, *eval_sets = evaluate_all_models(
+        "data/processed/factor_ml_dataset_enhanced.csv"
+    )
+    overlay_factors, per_factor_model, per_factor_lambda = select_overlay_models(results_df, trained_models)
+
+    # -------------------------------------------------------------------------
+    # 6) Baseline vs ML + ML-enhanced Monte Carlo
+    # -------------------------------------------------------------------------
+    step(6, "Baseline and Monte Carlo")
+    hist_mean = HistoricalMeanBaseline().fit(eval_sets[3])
+    hist_vs_ml_comparison = compare_historical_mean_vs_ml(
+        hist_mean, best_model, eval_sets[2], eval_sets[5], "results"
+    )
+
+    mc = MonteCarloFactorSimulator(10_000, 42).fit(eval_sets[3])
+    ml_enhanced_comparison, _ = compare_ml_enhanced_monte_carlo(
+        mc, best_model, eval_sets[2], eval_sets[5], "results"
+    )
+
+    # -------------------------------------------------------------------------
+    # 7) Betas + THREE portfolio strategies
+    # -------------------------------------------------------------------------
+    step(7, "Betas and portfolio construction (3 strategies)")
+
+    # 7a) CAPM betas (reporting + plotting)
+    capm_betas_df = calculate_all_betas(
+        "data/processed/sp500_monthly_returns.csv",
+        "data/processed/Fama_French.csv",
+        "data/processed/sp500_capm_betas.csv",
+    )
+    plot_beta_distribution(capm_betas_df)
+
+    # 7b) FF5 betas (portfolio optimizer input; reuse everywhere to avoid recomputation)
+    ff5_betas_df = estimate_ff5_betas(
+        returns_path="data/processed/sp500_monthly_returns.csv",
+        ff_path="data/processed/Fama_French.csv",
+        output_path="data/processed/sp500_ff5_betas.csv",
+    )
+
+    # 7c) Build THREE portfolios to test RMW tilt hypothesis
     
-    print("\n" + "="*80)
-    print("✅ PIPELINE COMPLETE!")
-    print("="*80)
-    print("\nKey outputs:")
-    print("  • results/pipeline_summary.txt - Executive summary")
-    print("  • results/complete_results.xlsx - Full results")
-    print("  • data/processed/ff5_optimal_portfolio_weights.csv - Portfolio weights")
+    print("\n" + "=" * 80)
+    print("BUILDING PORTFOLIO 1/3: BASELINE (No RMW Tilt)")
+    print("=" * 80)
+    ff5_baseline = build_ff5_optimal_portfolio(
+        "data/processed/sp500_monthly_returns.csv",
+        "data/processed/Fama_French.csv",
+        "data/processed/factor_ml_dataset_enhanced.csv",
+        best_model,
+        betas_df=ff5_betas_df,
+        overlay_factors=overlay_factors,
+        per_factor_model=per_factor_model,
+        per_factor_lambda=per_factor_lambda,
+        lambda_overlay=0.30,
+        rmw_tilt_strength=0.0,  # NO TILT - Pure Markowitz
+        save_path="data/processed/ff5_baseline_weights.csv",
+    )
+
+    print("\n" + "=" * 80)
+    print("BUILDING PORTFOLIO 2/3: MODERATE RMW TILT (strength=0.3)")
+    print("=" * 80)
+    ff5_tilt = build_ff5_optimal_portfolio(
+        "data/processed/sp500_monthly_returns.csv",
+        "data/processed/Fama_French.csv",
+        "data/processed/factor_ml_dataset_enhanced.csv",
+        best_model,
+        betas_df=ff5_betas_df,
+        overlay_factors=overlay_factors,
+        per_factor_model=per_factor_model,
+        per_factor_lambda=per_factor_lambda,
+        lambda_overlay=0.30,
+        rmw_tilt_strength=0.3,  # Moderate RMW tilt
+        save_path="data/processed/ff5_rmw_tilt_weights.csv",
+    )
+
+    print("\n" + "=" * 80)
+    print("BUILDING PORTFOLIO 3/3: CONCENTRATED RMW (50 stocks, strength=0.4)")
+    print("=" * 80)
+    ff5_concentrated = build_concentrated_portfolio(
+        "data/processed/sp500_monthly_returns.csv",
+        "data/processed/Fama_French.csv",
+        "data/processed/factor_ml_dataset_enhanced.csv",
+        best_model,
+        betas_df=ff5_betas_df,
+        max_stocks=50,
+        filter_method="rmw",
+        min_r_squared=0.15,
+        overlay_factors=overlay_factors,
+        per_factor_model=per_factor_model,
+        per_factor_lambda=per_factor_lambda,
+        lambda_overlay=0.30,
+        rmw_tilt_strength=0.3 # Moderate RMW tilt on top of RMW filter
+    )
+
+    # -------------------------------------------------------------------------
+    # 8) Rolling backtest (uses baseline - no tilt)
+    # -------------------------------------------------------------------------
+    step(8, "Rolling backtest (baseline strategy)")
+    backtest_results = backtest_ff5_tangency(
+        "data/processed/sp500_monthly_returns.csv",
+        "data/processed/Fama_French.csv",
+    )
+
+    # -------------------------------------------------------------------------
+    # 9) Compare all three strategies
+    # -------------------------------------------------------------------------
+    step(9, "Strategy comparison: Baseline vs Tilt vs Concentration")
+
+    comparison_df = pd.DataFrame(
+        [
+            calc_portfolio_stats(ff5_baseline, "data/processed/Fama_French.csv", "Baseline (no tilt)"),
+            calc_portfolio_stats(ff5_tilt, "data/processed/Fama_French.csv", "RMW Tilt (0.3)"),
+            calc_portfolio_stats(ff5_concentrated, "data/processed/Fama_French.csv", "RMW-50 (concentrated)"),
+        ]
+    )
+
+    # Print comparison table
+    print("\n" + "=" * 80)
+    print("STRATEGY COMPARISON SUMMARY")
+    print("=" * 80)
+    print(comparison_df.to_string(index=False))
+    print("\n" + "=" * 80)
     
-    return (predictor, best_model, results_df, hist_vs_ml_comparison, 
-            ml_enhanced_comparison, betas_df, ff5_portfolio, 
-            ff5_portfolio_sharpe, ff5_portfolio_r2, comparison_df)
+    # Highlight key findings
+    baseline_sharpe = comparison_df.loc[comparison_df["Strategy"] == "Baseline (no tilt)", "Sharpe"].values[0]
+    tilt_sharpe = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt (0.3)", "Sharpe"].values[0]
+    conc_sharpe = comparison_df.loc[comparison_df["Strategy"] == "RMW-50 (concentrated)", "Sharpe"].values[0]
+    
+    baseline_rmw = comparison_df.loc[comparison_df["Strategy"] == "Baseline (no tilt)", "Portfolio_Beta_RMW"].values[0]
+    tilt_rmw = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt (0.3)", "Portfolio_Beta_RMW"].values[0]
+    conc_rmw = comparison_df.loc[comparison_df["Strategy"] == "RMW-50 (concentrated)", "Portfolio_Beta_RMW"].values[0]
+    
+    print("\nKEY FINDINGS:")
+    print("-" * 80)
+    print(f"1. Does RMW tilt help diversified portfolio?")
+    print(f"   Baseline: Sharpe {baseline_sharpe:.3f}, RMW beta {baseline_rmw:.3f}")
+    print(f"   With Tilt: Sharpe {tilt_sharpe:.3f}, RMW beta {tilt_rmw:.3f}")
+    if tilt_sharpe > baseline_sharpe:
+        print(f"   → ✓ YES: Tilt improves Sharpe by {(tilt_sharpe/baseline_sharpe - 1)*100:+.1f}%")
+    else:
+        print(f"   → ✗ NO: Tilt reduces Sharpe by {(1 - tilt_sharpe/baseline_sharpe)*100:.1f}%")
+    
+    print(f"\n2. Does concentration help?")
+    print(f"   Baseline: Sharpe {baseline_sharpe:.3f}")
+    print(f"   Concentrated: Sharpe {conc_sharpe:.3f}, RMW beta {conc_rmw:.3f}")
+    if conc_sharpe > baseline_sharpe:
+        print(f"   → ✓ YES: Concentration improves Sharpe by {(conc_sharpe/baseline_sharpe - 1)*100:+.1f}%")
+    else:
+        print(f"   → ✗ NO: Concentration reduces Sharpe by {(1 - conc_sharpe/baseline_sharpe)*100:.1f}%")
+    
+    print(f"\n3. Overall ranking by Sharpe:")
+    sorted_strats = comparison_df.sort_values("Sharpe", ascending=False)
+    for i, (idx, row) in enumerate(sorted_strats.iterrows(), 1):
+        print(f"   #{i}: {row['Strategy']:30s} Sharpe={row['Sharpe']:.3f}")
+    
+    print("=" * 80)
+
+    export_all_results(
+        predictor,
+        best_model,
+        results_df,
+        hist_vs_ml_comparison,
+        ml_enhanced_comparison,
+        capm_betas_df,
+        ff5_baseline,
+        ff5_tilt,
+        ff5_concentrated,
+        comparison_df,
+        backtest_results=backtest_results,
+    )
+
+    print("\n✅ PIPELINE COMPLETE")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run Fama-French Factor Prediction Pipeline')
-    parser.add_argument('--verbose', '-v', action='store_true', 
-                       help='Show detailed output')
-    parser.add_argument('--skip-plots', action='store_true',
-                       help='Skip generating plots (faster)')
-    args = parser.parse_args()
-    
-    results = main(verbose=args.verbose, skip_plots=args.skip_plots)
+    main()

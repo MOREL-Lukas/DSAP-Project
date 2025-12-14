@@ -7,18 +7,6 @@ import os
 def calculate_excess_returns(returns_df, rf_series):
     """
     Calculate excess returns for all stocks.
-    
-    Parameters
-    ----------
-    returns_df : pd.DataFrame
-        Stock returns (Date index, tickers as columns)
-    rf_series : pd.Series
-        Risk-free rate (Date index)
-    
-    Returns
-    -------
-    excess_returns : pd.DataFrame
-        Excess returns (returns - risk-free rate)
     """
     # Align risk-free rate with returns
     rf_aligned = rf_series.reindex(returns_df.index)
@@ -32,18 +20,6 @@ def calculate_excess_returns(returns_df, rf_series):
 def calculate_market_excess_return(market_return, rf_series):
     """
     Calculate market excess return (market risk premium).
-    
-    Parameters
-    ----------
-    market_return : pd.Series
-        Market returns (e.g., S&P 500)
-    rf_series : pd.Series
-        Risk-free rate
-    
-    Returns
-    -------
-    market_excess : pd.Series
-        Market excess returns (R_m - R_f)
     """
     rf_aligned = rf_series.reindex(market_return.index)
     market_excess = market_return - rf_aligned
@@ -54,29 +30,6 @@ def calculate_market_excess_return(market_return, rf_series):
 def calculate_capm_beta(stock_excess_returns, market_excess_returns, min_obs=24):
     """
     Calculate CAPM beta using OLS regression.
-    
-    Beta = Cov(R_i - R_f, R_m - R_f) / Var(R_m - R_f)
-    
-    Parameters
-    ----------
-    stock_excess_returns : pd.Series
-        Stock excess returns
-    market_excess_returns : pd.Series
-        Market excess returns
-    min_obs : int
-        Minimum number of observations required
-    
-    Returns
-    -------
-    results : dict
-        Dictionary containing:
-        - beta: CAPM beta
-        - alpha: Jensen's alpha
-        - r_squared: R²
-        - std_error: Standard error of beta
-        - t_stat: t-statistic for beta
-        - p_value: p-value for beta
-        - n_obs: Number of observations
     """
     # Align data and drop NaN
     data = pd.DataFrame({
@@ -132,31 +85,13 @@ def calculate_capm_beta(stock_excess_returns, market_excess_returns, min_obs=24)
         'n_obs': len(data)
     }
 
-
 def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
                        rf_path="data/processed/Fama_French.csv",
                        market_ticker="^GSPC",
                        output_path="data/processed/sp500_capm_betas.csv"):
     """
     Calculate CAPM betas for all S&P 500 stocks.
-    
-    Parameters
-    ----------
-    returns_path : str
-        Path to monthly returns CSV
-    rf_path : str
-        Path to Fama-French data (contains RF)
-    market_ticker : str
-        Market index ticker (default: S&P 500)
-    output_path : str
-        Where to save results
-    
-    Returns
-    -------
-    betas_df : pd.DataFrame
-        DataFrame with beta estimates for each stock
     """
-    
     # 1) Load stock returns
     print("\n1. Loading stock returns...")
     returns_df = pd.read_csv(returns_path, parse_dates=['Date'], index_col='Date')
@@ -174,7 +109,6 @@ def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
     print(f"   Stock excess returns calculated")
     
     # 4) Calculate market excess return
-    # Option A: Use S&P 500 equal-weighted return from our stocks
     print("\n4. Calculating market excess return...")
     if market_ticker in returns_df.columns:
         market_return = returns_df[market_ticker]
@@ -235,20 +169,6 @@ def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
 def calculate_rolling_beta(stock_excess_returns, market_excess_returns, window=60):
     """
     Calculate rolling beta over time.
-    
-    Parameters
-    ----------
-    stock_excess_returns : pd.Series
-        Stock excess returns
-    market_excess_returns : pd.Series
-        Market excess returns
-    window : int
-        Rolling window in months (default: 60 = 5 years)
-    
-    Returns
-    -------
-    rolling_beta : pd.Series
-        Time series of rolling betas
     """
     # Align data
     data = pd.DataFrame({
@@ -262,18 +182,14 @@ def calculate_rolling_beta(stock_excess_returns, market_excess_returns, window=6
     
     # Beta = Cov / Var
     rolling_beta = rolling_cov / rolling_var
-    
     return rolling_beta
-
 
 def plot_beta_distribution(betas_df, save_path="results/beta_distribution.png"):
     """
     Plot distribution of betas.
     """
     import matplotlib.pyplot as plt
-    
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    
     # Histogram
     ax1 = axes[0]
     betas_df['Beta'].hist(bins=50, ax=ax1, edgecolor='black')
@@ -296,17 +212,14 @@ def plot_beta_distribution(betas_df, save_path="results/beta_distribution.png"):
     ax2.set_title('Beta vs Model Quality', fontsize=14, fontweight='bold')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
-    
     plt.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"\n📊 Beta distribution plot saved to: {save_path}")
     plt.close()
 
-
 if __name__ == "__main__":
     # Calculate betas
     betas_df = calculate_all_betas()
-    
     # Plot distribution
     plot_beta_distribution(betas_df)
