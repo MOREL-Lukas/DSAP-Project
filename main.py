@@ -21,6 +21,7 @@ from src.portfolio_optimizer import (
     backtest_ff5_tangency,
     build_concentrated_portfolio,
     calc_portfolio_stats,
+    build_equal_weight_portfolio,
 )
 from src.results_exporter import export_all_results
 
@@ -152,6 +153,16 @@ def main() -> None:
         ff_path="data/processed/Fama_French.csv",
         output_path="data/processed/sp500_ff5_betas.csv",
     )
+    print("\n" + "=" * 80)
+    print("BUILDING BENCHMARK: EQUAL-WEIGHT (same universe as beta estimates)")
+    print("=" * 80)
+
+    ff5_equal_weight = build_equal_weight_portfolio(
+        betas_df=ff5_betas_df,
+        min_r_squared=0.0,  # optionally set 0.15 if you want to mirror your “valid beta” quality idea
+        save_path="data/processed/ff5_equal_weight_weights.csv",
+    )
+
 
     # 7c) Build THREE portfolios to test RMW tilt hypothesis
     
@@ -173,7 +184,7 @@ def main() -> None:
     )
 
     print("\n" + "=" * 80)
-    print("BUILDING PORTFOLIO 2/3: MODERATE RMW TILT (strength=0.3)")
+    print("BUILDING PORTFOLIO 2/3: MODERATE RMW TILT (strength=1)")
     print("=" * 80)
     ff5_tilt = build_ff5_optimal_portfolio(
         "data/processed/sp500_monthly_returns.csv",
@@ -185,7 +196,7 @@ def main() -> None:
         per_factor_model=per_factor_model,
         per_factor_lambda=per_factor_lambda,
         lambda_overlay=0.30,
-        rmw_tilt_strength=0.3,  # Moderate RMW tilt
+        rmw_tilt_strength=1,  # High RMW tilt
         save_path="data/processed/ff5_rmw_tilt_weights.csv",
     )
 
@@ -205,7 +216,7 @@ def main() -> None:
         per_factor_model=per_factor_model,
         per_factor_lambda=per_factor_lambda,
         lambda_overlay=0.30,
-        rmw_tilt_strength=0.3 # Moderate RMW tilt on top of RMW filter
+        rmw_tilt_strength=1 # Moderate RMW tilt on top of RMW filter
     )
 
     # -------------------------------------------------------------------------
@@ -224,11 +235,13 @@ def main() -> None:
 
     comparison_df = pd.DataFrame(
         [
+            calc_portfolio_stats(ff5_equal_weight, "data/processed/Fama_French.csv", "Equal-Weight"),
             calc_portfolio_stats(ff5_baseline, "data/processed/Fama_French.csv", "Baseline (no tilt)"),
             calc_portfolio_stats(ff5_tilt, "data/processed/Fama_French.csv", "RMW Tilt (0.3)"),
             calc_portfolio_stats(ff5_concentrated, "data/processed/Fama_French.csv", "RMW-50 (concentrated)"),
         ]
     )
+
 
     # Print comparison table
     print("\n" + "=" * 80)
@@ -278,6 +291,7 @@ def main() -> None:
         hist_vs_ml_comparison,
         ml_enhanced_comparison,
         capm_betas_df,
+        ff5_equal_weight,
         ff5_baseline,
         ff5_tilt,
         ff5_concentrated,

@@ -13,7 +13,7 @@ FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 BETA_COLS = ["Beta_MKT", "Beta_SMB", "Beta_HML", "Beta_RMW", "Beta_CMA"]
 
 MAX_WEIGHT = 0.10
-MAX_SHORT = 0.30
+MAX_SHORT = 0.0
 
 
 # =============================================================================
@@ -456,7 +456,7 @@ def build_ff5_optimal_portfolio(
     
     # Apply constraints after tilt
     w_star = apply_weight_constraints(w_tilted, max_weight=MAX_WEIGHT, max_short=MAX_SHORT)
-
+    
     weights_df = betas_valid.copy()
     weights_df["Weight"] = w_star
     weights_df = weights_df.sort_values("Weight", ascending=False)
@@ -632,6 +632,7 @@ def backtest_ff5_tangency(
     ff_path: str,
     min_train_months: int = 120,
     min_obs_per_stock: int = 36,
+    rmw_tilt_strength=1,
 ) -> pd.DataFrame:
     """Expanding-window FF5 tangency backtest (monthly, using in-sample moments)."""
     print(f"  min_train_months   = {min_train_months}")
@@ -652,7 +653,8 @@ def backtest_ff5_tangency(
     if n_months <= min_train_months + 1:
         raise ValueError("Not enough data for the requested training window.")
 
-    out_dates, port_rets, mkt_rets = [], [], []
+    out_dates, port_rets, mkt_rets, ew_rets, tilt_rets = [], [], [], [], []
+
 
     for t_idx in tqdm(range(min_train_months, n_months), desc="Rolling FF5 Backtest", leave=True):
         train = data.iloc[:t_idx]
@@ -737,6 +739,12 @@ def backtest_ff5_tangency(
             continue
 
         w_star = apply_weight_constraints(raw_w / raw_w.sum())
+        # Tilt toward high RMW exposure (same constraint regime as baseline)
+        # FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"] -> RMW index = 3
+        betas_rmw_valid = B[:, 3]
+        w_tilt = apply_rmw_tilt(w_star, betas_rmw_valid, tilt_strength=rmw_tilt_strength)
+        w_tilt = apply_weight_constraints(w_tilt)  # keep feasible set identical
+
 
         rf_test = float(test["RF"])
         test_returns = test[stock_cols].to_numpy(dtype=float)
@@ -747,39 +755,59 @@ def backtest_ff5_tangency(
             continue
 
         port_excess = float(np.nansum(w_star * ex_test))
+        tilt_excess = float(np.nansum(w_tilt * ex_test))
+        finite = np.isfinite(ex_test)
+        ew_excess = float(np.mean(ex_test[finite])) if finite.any() else np.nan
+        # Equal-weight (long-only) on the same valid universe this month
+        finite = np.isfinite(ex_test)
+        ew_excess = float(np.mean(ex_test[finite])) if finite.any() else np.nan
         mkt_excess = float(test["Mkt-RF"]) if "Mkt-RF" in test.index else np.nan
 
         out_dates.append(test_date)
         port_rets.append(port_excess)
+        ew_rets.append(ew_excess)
         mkt_rets.append(mkt_excess)
+        tilt_rets.append(tilt_excess)
 
     results = pd.DataFrame(
-        {"Port_Excess_Return": port_rets, "Mkt_RF": mkt_rets},
+        {"Port_Excess_Return": port_rets, "Tilt_Excess_Return": tilt_rets, "EW_Excess_Return": ew_rets, "Mkt_RF": mkt_rets},
         index=pd.to_datetime(out_dates),
     ).sort_index()
 
     if len(results) > 1:
-        mu_port = float(results["Port_Excess_Return"].mean())
-        sigma_port = float(results["Port_Excess_Return"].std(ddof=1))
-        sharpe_port = mu_port / sigma_port if sigma_port > 0 else np.nan
 
-        valid = results.dropna()
-        if len(valid) > 1:
-            cov_pm = np.cov(valid["Port_Excess_Return"], valid["Mkt_RF"])[0, 1]
-            var_m = np.var(valid["Mkt_RF"], ddof=1)
-            beta_capm = cov_pm / var_m if var_m > 0 else np.nan
-            mu_mkt = float(valid["Mkt_RF"].mean())
-            alpha_capm = mu_port - beta_capm * mu_mkt if np.isfinite(beta_capm) else np.nan
-        else:
-            beta_capm, alpha_capm = np.nan, np.nan
+        def _print_summary(label, excess, mkt):
+            excess = excess.dropna()
+            mkt = mkt.loc[excess.index]
 
-        print("\nBacktest summary:\n" + "-" * 80)
-        print(f"  Periods:                {len(results)}")
-        print(f"  Mean excess return:     {mu_port:+.4f} ({mu_port*100:+.2f}%)")
-        print(f"  Volatility:             {sigma_port:.4f} ({sigma_port*100:.2f}%)")
-        print(f"  Sharpe ratio:           {sharpe_port:.3f}")
-        print(f"  CAPM beta (vs Mkt-RF):  {beta_capm:.3f}")
-        print(f"  CAPM alpha (monthly):   {alpha_capm:+.4f} ({alpha_capm*100:+.2f}%)")
+            if len(excess) <= 1:
+                print(f"\n{label} summary: insufficient data")
+                return
+
+            mu = excess.mean()
+            sigma = excess.std(ddof=1)
+            sharpe = mu / sigma if sigma > 0 else np.nan
+
+            cov = np.cov(excess, mkt)[0, 1]
+            beta = cov / np.var(mkt, ddof=1)
+            alpha = mu - beta * mkt.mean()
+
+            print(f"\n{label} summary:")
+            print("-" * 80)
+            print(f"  Periods:                {len(excess)}")
+            print(f"  Mean excess return:     {mu:+.4f} ({mu*100:+.2f}%)")
+            print(f"  Volatility:             {sigma:.4f} ({sigma*100:.2f}%)")
+            print(f"  Sharpe ratio:           {sharpe:.3f}")
+            print(f"  CAPM beta (vs Mkt-RF):  {beta:.3f}")
+            print(f"  CAPM alpha (monthly):   {alpha:+.4f} ({alpha*100:+.2f}%)")
+
+        # -------------------------------
+        # Print all backtest summaries
+        # -------------------------------
+        _print_summary("Equal-weight benchmark", results["EW_Excess_Return"], results["Mkt_RF"])
+        _print_summary("Baseline (Tangency)", results["Port_Excess_Return"], results["Mkt_RF"])
+        _print_summary("RMW Tilt", results["Tilt_Excess_Return"], results["Mkt_RF"])
+
 
     os.makedirs("data/processed", exist_ok=True)
     out_path = "data/processed/ff5_backtest_unconstrained.csv"
@@ -787,6 +815,55 @@ def backtest_ff5_tangency(
     print(f"\nBacktest results saved to: {out_path}")
 
     return results
+
+def build_equal_weight_portfolio(
+    betas_df: pd.DataFrame,
+    min_r_squared: float = 0.0,
+    long_only: bool = True,
+    save_path: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Build an equal-weight portfolio over the same investable universe as the beta table.
+
+    Returns a weights_df compatible with calc_portfolio_stats(), i.e. it includes:
+      - Weight
+      - Beta_MKT ... Beta_CMA
+    """
+    if betas_df is None or len(betas_df) == 0:
+        raise ValueError("betas_df is empty; cannot build equal-weight portfolio.")
+
+    df = betas_df.copy()
+
+    # Ensure required columns exist and are non-missing
+    required = [c for c in BETA_COLS if c in df.columns]
+    if len(required) != len(BETA_COLS):
+        missing = set(BETA_COLS) - set(df.columns)
+        raise ValueError(f"betas_df missing required beta columns: {missing}")
+
+    df = df.dropna(subset=BETA_COLS)
+
+    # Optional quality filter
+    if "R_squared" in df.columns and min_r_squared > 0:
+        df = df[df["R_squared"] >= float(min_r_squared)].copy()
+
+    n = len(df)
+    if n == 0:
+        raise ValueError("No assets left after filtering; cannot build equal-weight portfolio.")
+
+    w = np.full(n, 1.0 / n, dtype=float)
+
+    # Equal-weight is typically long-only; keep parameter to be explicit.
+    if not long_only:
+        raise ValueError("Equal-weight benchmark should be long-only in this project context.")
+
+    df["Weight"] = w
+    df = df.sort_values("Weight", ascending=False)
+
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        df.to_csv(save_path, index=True)
+
+    return df
 
 
 # =============================================================================

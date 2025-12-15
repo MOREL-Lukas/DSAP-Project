@@ -197,6 +197,8 @@ Environment name: **DSAP-Project**
 Create and activate the environment:
 
 ```bash
+git clone https://github.com/MOREL-Lukas/DSAP-Project.git
+cd DSAP-Project
 conda env create -f environment.yml
 conda activate DSAP-Project
 ```
@@ -247,6 +249,11 @@ This project builds on established research in empirical asset pricing and facto
 - Gu, S., Kelly, B., & Xiu, D. (2020). *Empirical asset pricing via machine learning*. Review of Financial Studies, 33(5), 2223–2273.
 - Kozak, S., Nagel, S., & Santosh, S. (2020). *Shrinking the cross-section*. Journal of Financial Economics, 135(2), 271–292.
 - Malkiel, B. G. (2003). *The efficient market hypothesis and its critics*. Journal of Economic Perspectives, 17(1), 59–82.
+-Fama, E. F. (1970). Efficient capital markets: A review of theory and empirical work. Journal of Finance, 25(2), 383–417.
+-Federal Reserve Bank of St. Louis. (2025). Federal Reserve Economic Data (FRED). https://fred.stlouisfed.org
+-Hastie, T., Tibshirani, R., & Friedman, J. (2009). The elements of statistical learning (2nd ed.). Springer.
+-French, K. R. (2025). Fama–French data library. https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+-Yahoo Finance. (2025). Yahoo Finance market data. https://finance.yahoo.com
 
 ---
 
@@ -254,7 +261,7 @@ This project builds on established research in empirical asset pricing and facto
 
 This project was developed with assistance from AI tools:
 
-- OpenAI — ChatGPT (GPT-4 / GPT-4.1)
+- OpenAI — ChatGPT (GPT-4 / GPT-5)
 - Anthropic — Claude (Claude 3.5 Sonnet)
 - GitHub Copilot
 
