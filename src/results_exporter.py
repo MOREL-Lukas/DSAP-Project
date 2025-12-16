@@ -90,7 +90,7 @@ def export_all_results(
         test_slice = test_df[test_df["Model"] == best_model_name]
         test_r2 = float(test_slice["R²"].mean()) if not test_slice.empty else float("nan")
 
-        f.write("KEY FINDINGS:\n")
+        f.write("KEY FINDINGS: (Static / Single-Period Comparison)\n")
         f.write("-" * 80 + "\n")
         f.write(f"1. Best ML Model (chosen on Val): {best_model_name}\n")
         f.write(f"   Average Val  R² (selection): {best_r2:+.4f}\n")

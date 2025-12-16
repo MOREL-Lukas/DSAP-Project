@@ -223,8 +223,6 @@ def compare_historical_mean_vs_ml(hist_mean_baseline, ml_predictor, X_test, y_te
 
     df = pd.DataFrame(rows)
 
-    print("\n" + "=" * 80 + "\nPERFORMANCE COMPARISON\n" + "=" * 80)
-
     print("\nR2 Scores (higher is better):\n" + "-" * 80)
     r2_tbl = df[["Factor", "Hist_Mean_R2", "ML_R2", "R2_Improvement"]].copy()
     r2_tbl["Winner"] = r2_tbl["R2_Improvement"].apply(lambda x: "ML" if x > 0 else ("Hist" if x < 0 else "Tie"))
@@ -237,7 +235,6 @@ def compare_historical_mean_vs_ml(hist_mean_baseline, ml_predictor, X_test, y_te
         )
     )
 
-    print("\n" + "=" * 80 + "\nSUMMARY STATISTICS\n" + "=" * 80)
     avg_hm, avg_ml = df["Hist_Mean_R2"].mean(), df["ML_R2"].mean()
     print(
         f"\nAverage R2 across all factors:\n"
@@ -253,7 +250,7 @@ def compare_historical_mean_vs_ml(hist_mean_baseline, ml_predictor, X_test, y_te
     print(f"\nWin/Loss Record (by R2):\n  ML Model wins:        {ml_w}/5\n  Historical Mean wins: {hm_w}/5\n  Ties:                 {ties}/5")
     print("\n  ✓ ML model provides value over simple historical mean!" if ml_w > hm_w
           else ("\n  → ML and Historical Mean perform similarly" if ml_w == hm_w
-                else "\n  ⚠ Historical Mean outperforms ML (possible overfitting)"))
+                else "\n  ⚠ Historical Mean outperforms ML on average"))
 
     _plot_hist_vs_ml_comparison(df, y_test, hm_pred, ml_pred, X_test.index, save_dir)
 

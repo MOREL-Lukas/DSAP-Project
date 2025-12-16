@@ -114,16 +114,10 @@ class FactorPredictor:
         X_train_scaled = self.scaler.fit_transform(X_train)
         print(f"\nTraining {self.model_type} models...")
         
-        for factor in self.target_names:
-            print(f"  Training {factor}...", end=' ')
-            
+        for factor in self.target_names: 
             model = self._create_model()
             model.fit(X_train_scaled, y_train[factor])
             self.models[factor] = model
-            
-            print("✓")
-        
-        print("Training complete!")
     
     def predict(self, X):
         """Predict all factors for new data."""
@@ -313,7 +307,7 @@ def compare_all_models(
 
     best_model_name = avg_r2_by_model.idxmax()
     best_model = trained_models[best_model_name]
-    print(f"\n✓ Best model (Val): {best_model_name} (Avg Val R² = {avg_r2_by_model[best_model_name]:+.4f})")
+    print(f"\n✓ Best model on average (Val): {best_model_name} (Avg Val R² = {avg_r2_by_model[best_model_name]:+.4f})")
 
     return results_df, best_model, trained_models
 
@@ -392,7 +386,7 @@ def plot_model_comparison(results_df, split="Test", save_path="results/model_com
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    print(f"\nComparison plot saved to: {save_path}")
+    print(f"\n{split} set comparison plot saved to: {save_path}")
     plt.close()
 
 def save_detailed_results(results_df, save_path="results/model_comparison_detailed.csv"):
@@ -403,10 +397,6 @@ def save_detailed_results(results_df, save_path="results/model_comparison_detail
 
 def evaluate_all_models(dataset_path="data/processed/factor_ml_dataset_enhanced.csv"):
     """Complete evaluation pipeline."""
-    print("\n" + "="*80)
-    print("STEP 5: ML MODELS EVALUATION")
-    print("="*80)
-
     temp_predictor = FactorPredictor()
     X, y, dates = temp_predictor.prepare_data(dataset_path)
     X_train, X_val, X_test, y_train, y_val, y_test, dates_train, dates_val, dates_test = \

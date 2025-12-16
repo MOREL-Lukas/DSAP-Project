@@ -184,7 +184,7 @@ def main() -> None:
     )
 
     print("\n" + "=" * 80)
-    print("BUILDING PORTFOLIO 2/3: MODERATE RMW TILT (strength=1)")
+    print("BUILDING PORTFOLIO 2/3: HIGH RMW TILT (strength=1)")
     print("=" * 80)
     ff5_tilt = build_ff5_optimal_portfolio(
         "data/processed/sp500_monthly_returns.csv",
@@ -201,7 +201,7 @@ def main() -> None:
     )
 
     print("\n" + "=" * 80)
-    print("BUILDING PORTFOLIO 3/3: CONCENTRATED RMW (50 stocks, strength=0.4)")
+    print("BUILDING PORTFOLIO 3/3: CONCENTRATED RMW (50 stocks, strength=1)")
     print("=" * 80)
     ff5_concentrated = build_concentrated_portfolio(
         "data/processed/sp500_monthly_returns.csv",
@@ -216,7 +216,7 @@ def main() -> None:
         per_factor_model=per_factor_model,
         per_factor_lambda=per_factor_lambda,
         lambda_overlay=0.30,
-        rmw_tilt_strength=1 # Moderate RMW tilt on top of RMW filter
+        rmw_tilt_strength=1 # High RMW tilt on top of RMW filter
     )
 
     # -------------------------------------------------------------------------

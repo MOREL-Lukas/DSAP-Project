@@ -93,32 +93,21 @@ def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
     Calculate CAPM betas for all S&P 500 stocks.
     """
     # 1) Load stock returns
-    print("\n1. Loading stock returns...")
     returns_df = pd.read_csv(returns_path, parse_dates=['Date'], index_col='Date')
     print(f"   Loaded {len(returns_df)} months for {len(returns_df.columns)} stocks")
     
     # 2) Load risk-free rate
-    print("\n2. Loading risk-free rate...")
     ff_data = pd.read_csv(rf_path, parse_dates=['Date'], index_col='Date')
     rf_series = ff_data['RF']
     print(f"   Risk-free rate: {rf_series.mean()*100:.2f}% average monthly")
     
     # 3) Calculate excess returns for all stocks
-    print("\n3. Calculating excess returns...")
     stock_excess_returns = calculate_excess_returns(returns_df, rf_series)
     print(f"   Stock excess returns calculated")
-    
-    # 4) Calculate market excess return
-    print("\n4. Calculating market excess return...")
-    if market_ticker in returns_df.columns:
-        market_return = returns_df[market_ticker]
-    else:
-        # Use equal-weighted average as market proxy
-        market_return = returns_df.mean(axis=1)
-        print("   Using equal-weighted portfolio as market proxy")
-    
-    market_excess = calculate_market_excess_return(market_return, rf_series)
-    print(f"   Market risk premium: {market_excess.mean()*100:.2f}% average monthly")
+
+
+    # 4) Market excess return (from Fama–French)
+    market_excess = ff_data["Mkt-RF"].reindex(returns_df.index)
     
     # 5) Calculate beta for each stock
     print("\n5. Calculating CAPM betas for all stocks...")
