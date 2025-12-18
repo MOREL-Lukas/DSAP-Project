@@ -257,16 +257,6 @@ This project builds on established research in empirical asset pricing and facto
 
 ---
 
-## AI Tools Used
-
-This project was developed with assistance from AI tools:
-
-- OpenAI — ChatGPT (GPT-4 / GPT-5)
-- Anthropic — Claude (Claude 3.5 Sonnet)
-- GitHub Copilot
-
----
-
 ## License
 
 This project is provided for **educational and academic research purposes only**.
