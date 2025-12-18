@@ -1,0 +1,82 @@
+================================================================================
+FAMA-FRENCH 5-FACTOR PREDICTION - RESULTS SUMMARY
+================================================================================
+Generated: 2025-12-18 13:58:10
+================================================================================
+
+KEY FINDINGS: (Static / Single-Period Comparison)
+--------------------------------------------------------------------------------
+1. Best ML Model (chosen on Val): Random Forest
+   Average Val  R² (selection): +0.0115
+   Average Test R² (same model): -0.0215
+   Result: ML performs WORSE than historical mean (negative test R²).
+   Note: This is the average across all 5 factors; factor-level results vary.
+
+2. Factor Predictability (Val vs Test):
+   Note: Model selection is based on validation performance.
+
+   CMA       : Val R² = +0.0014, Test R² = -0.0318 (Random Forest) ✗ Unpredictable
+   HML       : Val R² = +0.0273, Test R² = -0.0392 (Random Forest) ✗ Unpredictable
+   Mkt-RF    : Val R² = -0.0122, Test R² = -0.0166 (Random Forest) ✗ Unpredictable
+   RMW       : Val R² = +0.0586, Test R² = +0.0575 (Random Forest) ✓ Predictable
+   SMB       : Val R² = -0.0174, Test R² = -0.0772 (Random Forest) ✗ Unpredictable
+
+3. Uncertainty Quantification:
+   Avg 95% interval coverage: 90.2%
+   Note: coverage varies by factor; interpret 'well-calibrated' with caution.
+
+4. Out-of-Sample Backtest Results (Rolling Window):
+--------------------------------------------------------------------------------
+   Baseline:
+     - Periods:      309
+     - Sharpe:       0.250
+     - Mean:         +0.99% monthly (+11.89% ann.)
+     - Volatility:   3.97% monthly (13.74% ann.)
+     - CAPM beta:    0.749
+     - CAPM alpha:   +0.51% monthly (+6.18% ann.)
+   RMW Tilt:
+     - Periods:      309
+     - Sharpe:       0.250
+     - Mean:         +0.99% monthly (+11.92% ann.)
+     - Volatility:   3.97% monthly (13.74% ann.)
+     - CAPM beta:    0.745
+     - CAPM alpha:   +0.52% monthly (+6.24% ann.)
+   Equal-Weight:
+     - Periods:      309
+     - Sharpe:       0.258
+     - Mean:         +1.21% monthly (+14.50% ann.)
+     - Volatility:   4.69% monthly (16.24% ann.)
+     - CAPM beta:    0.967
+     - CAPM alpha:   +0.59% monthly (+7.13% ann.)
+
+5. Portfolio Strategy Comparison (Cross-Sectional Snapshot):
+--------------------------------------------------------------------------------
+             Strategy  N_Stocks  Sum_Weights  Gross_Exposure  Long_Exposure  Short_Exposure  Portfolio_Beta_MKT  Portfolio_Beta_HML  Portfolio_Beta_RMW   Avg_R2  Expected_Excess_Return  Volatility   Sharpe  CAPM_Alpha
+         Equal-Weight       496     1.000000        1.000000       1.000000             0.0            1.039969            0.111828            0.107132 0.303074                0.007270    0.047679 0.152467    0.001066
+   Baseline (no tilt)       245     0.964729        0.964729       0.964729             0.0            0.804790            0.127185            0.351080 0.268657                0.007228    0.034728 0.208132    0.002427
+       RMW Tilt (0.3)       242     0.966070        0.966070       0.966070             0.0            0.803983            0.126329            0.381246 0.268210                0.007286    0.034716 0.209862    0.002490
+RMW-50 (concentrated)        30     0.999401        0.999401       0.999401             0.0            1.060594            0.144797            0.835896 0.304072                0.010373    0.052321 0.198267    0.004047
+
+STRATEGY ANALYSIS:
+--------------------------------------------------------------------------------
+
+(A) RMW tilt vs baseline (snapshot):
+    Baseline: Sharpe 0.208, RMW beta 0.351
+    Tilt:     Sharpe 0.210, RMW beta 0.381
+    → Result: Sharpe essentially unchanged; tilt increases RMW exposure.
+
+(B) Concentration (50) vs baseline (snapshot):
+    Baseline Sharpe 0.208 vs Concentrated Sharpe 0.198
+    RMW beta increases to 0.836 but Sharpe declines, consistent with diversification loss.
+
+(C) Equal-weight vs optimized baseline (snapshot):
+    Equal-Weight Sharpe 0.152 vs Baseline Sharpe 0.208
+
+================================================================================
+
+6. Beta Statistics:
+   Average Beta: 1.038
+   Median  Beta: 1.001
+   Highest: 101 (β = 3.85)
+   Lowest:  152 (β = 0.13)
+   Avg R²: 0.234
