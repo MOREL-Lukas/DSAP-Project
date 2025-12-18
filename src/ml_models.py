@@ -23,8 +23,8 @@ class FactorPredictor:
             One of: 'random_forest', 'gradient_boosting', 'ridge', 'lasso'
         """
         self.model_type = model_type
-        self.models = {}
-        self.scaler = StandardScaler()
+        self.models = {} # Separate model per factor
+        self.scaler = StandardScaler() # Feature scaling
         self.feature_names = None
         self.target_names = ['Mkt-RF', 'SMB', 'HML', 'RMW', 'CMA']
         
@@ -38,7 +38,7 @@ class FactorPredictor:
                 min_samples_leaf=30,       # critical for macro data
                 min_samples_split=40,
                 max_features=0.5,          # decorrelate trees
-                random_state=42,
+                random_state=42,           # reproducibility
                 n_jobs=-1
             )
 
@@ -49,20 +49,20 @@ class FactorPredictor:
                 max_depth=2,
                 min_samples_leaf=20,
                 subsample=0.7,             # stochastic boosting
-                random_state=42
+                random_state=42            # reproducibility
             )
 
         elif self.model_type == 'ridge':
             return Ridge(
                 alpha=10.0,                # stronger shrinkage
-                random_state=42
+                random_state=42            # reproducibility
             )
 
         elif self.model_type == 'lasso':
             return Lasso(
                 alpha=0.001,               # avoid instability
                 max_iter=20000,
-                random_state=42
+                random_state=42            # reproducibility
             )
 
         else:
@@ -132,10 +132,10 @@ class FactorPredictor:
         y_pred = self.predict(X_test)
         metrics = []
         for factor in self.target_names:
-            mse = mean_squared_error(y_test[factor], y_pred[factor])
-            rmse = np.sqrt(mse)
-            mae = mean_absolute_error(y_test[factor], y_pred[factor])
-            r2 = r2_score(y_test[factor], y_pred[factor])
+            mse = mean_squared_error(y_test[factor], y_pred[factor]) # Mean Squared Error
+            rmse = np.sqrt(mse) # Root Mean Squared Error
+            mae = mean_absolute_error(y_test[factor], y_pred[factor]) # Mean Absolute Error
+            r2 = r2_score(y_test[factor], y_pred[factor]) # Coefficient of determination
             metrics.append({
                 'Factor': factor,
                 'RMSE': rmse,
@@ -278,7 +278,6 @@ def compare_all_models(
             print(f"Warning: {model_name} failed: {e}")
             continue
 
-    # ---- Guard rails: if nothing trained successfully, fail clearly ----
     if not all_results or not trained_models:
         raise RuntimeError(
             "compare_all_models(): No models were successfully trained/evaluated. "

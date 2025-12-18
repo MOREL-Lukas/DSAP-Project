@@ -1,5 +1,3 @@
-# src/portfolio_optimizer.py
-
 import os
 from typing import Optional, Dict, List, Tuple
 
@@ -80,7 +78,6 @@ def apply_rmw_tilt(
         RMW betas for each stock
     tilt_strength : float
         Strength of tilt (0 = no tilt, 1 = extreme tilt)
-        Recommended range: 0.2 - 0.5
     
     Returns
     -------
@@ -184,7 +181,6 @@ def _load_returns_and_factors(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     returns_df = pd.read_csv(returns_path, parse_dates=["Date"], index_col="Date")
     ff = pd.read_csv(ff_path, parse_dates=["Date"], index_col="Date")
-
     missing = set(FACTOR_COLS + ["RF"]) - set(ff.columns)
     if missing:
         raise ValueError(f"Missing columns in {ff_path}: {missing}")
@@ -396,7 +392,7 @@ def build_ff5_optimal_portfolio(
     per_factor_lambda: Optional[Dict[str, float]] = None,
     per_factor_model: Optional[Dict[str, FactorPredictor]] = None,
     save_path: str = "data/processed/ff5_optimal_portfolio_weights.csv",
-    rmw_tilt_strength: float = 0.3,  # NEW PARAMETER
+    rmw_tilt_strength: float = 0.3,
 ) -> pd.DataFrame:
     """
     FF5 tangency portfolio with optional RMW tilt.
@@ -404,8 +400,7 @@ def build_ff5_optimal_portfolio(
     Parameters
     ----------
     rmw_tilt_strength : float
-        Strength of RMW tilt (0 = no tilt, 0.5 = strong tilt)
-        Recommended: 0.2-0.4 for modest overweight of high-RMW stocks
+        Strength of RMW tilt (0 = no tilt, 1 = strong tilt)
     """
     betas_df = _ensure_ff5_betas(
         betas_df=betas_df,
@@ -419,7 +414,7 @@ def build_ff5_optimal_portfolio(
     if betas_valid.empty:
         raise ValueError("No valid FF5 betas available for portfolio construction.")
 
-    Sigma_f = build_ff5_factor_model(ff_path=ff_path)
+    Sigma_f = build_ff5_factor_model(ff_path=ff_path) 
     mu_f = compute_factor_premia_with_ml_overlay(
         ff_path=ff_path,
         factor_ml_dataset_path=factor_ml_dataset_path,
@@ -467,11 +462,11 @@ def build_ff5_optimal_portfolio(
     avg_beta_hml = float((weights_df["Weight"] * weights_df["Beta_HML"]).sum())
     avg_beta_rmw = float((weights_df["Weight"] * weights_df["Beta_RMW"]).sum())
 
-    mu_p = float((weights_df["Weight"].to_numpy() * mu_R[weights_df.index.get_indexer(weights_df.index)]).sum())
-    sigma_p = float(np.sqrt(max(0.0, w_star @ (Sigma_R @ w_star))))
-    sharpe_p = mu_p / sigma_p if sigma_p > 0 else np.nan
-    mu_mkt = float(mu_f["Mkt-RF"])
-    alpha_capm = mu_p - avg_beta_mkt * mu_mkt if np.isfinite(avg_beta_mkt) else np.nan
+    mu_p = float((weights_df["Weight"].to_numpy() * mu_R[weights_df.index.get_indexer(weights_df.index)]).sum()) # portfolio expected excess return
+    sigma_p = float(np.sqrt(max(0.0, w_star @ (Sigma_R @ w_star)))) # portfolio volatility
+    sharpe_p = mu_p / sigma_p if sigma_p > 0 else np.nan # Sharpe ratio
+    mu_mkt = float(mu_f["Mkt-RF"]) # market risk premium
+    alpha_capm = mu_p - avg_beta_mkt * mu_mkt if np.isfinite(avg_beta_mkt) else np.nan # CAPM alpha
 
     print("\nPortfolio summary:\n" + "-" * 80)
     print(f"  Sum of weights:         {total_weight:.4f}")

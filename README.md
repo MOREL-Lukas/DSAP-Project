@@ -203,7 +203,7 @@ per_factor_lambda = {'RMW': 0.4}  # Conservative 40% ML, 60% historical
 - **S&P 500 constituents:** DataHub
 - **Stock prices:** Yahoo Finance (monthly, 1990–2025)
 - **Fama–French 5 factors:** Kenneth French Data Library
-- **Macroeconomic indicators:** FRED (GDP, inflation, rates, spreads, VIX, oil)
+- **Macroeconomic indicators:** Yfinance (GDP, inflation, rates, spreads, VIX, oil)
 
 **Final Dataset:**
 - 428 months (1990-2025)
@@ -219,7 +219,7 @@ per_factor_lambda = {'RMW': 0.4}  # Conservative 40% ML, 60% historical
 - **Cross‑sectional market statistics** (factor spreads, dispersion)
 - **Lagged factor returns** (1, 2, 3, 6, 12 months) and rolling statistics
 - **Market regime indicators** (volatility, trend, breadth)
-- **Macroeconomic variables** (VIX, oil prices, FRED data)
+- **Macroeconomic variables** (VIX, oil prices, Yfinance data)
 
 All features are constructed **strictly using information available at time t**.
 
@@ -379,20 +379,10 @@ Key dependencies include:
 - `cvxpy`, `osqp`, `clarabel`
 - `statsmodels`
 - `matplotlib`, `seaborn`
-- `yfinance`, `fredapi`
+- `yfinance`
 
 (See `environment.yml` for the complete, pinned dependency list.)
 
-### FRED API Key (Required)
-
-A FRED API key is required for macroeconomic features:
-
-1. Get free key: https://fred.stlouisfed.org/docs/api/api_key.html
-2. Add to `main.py` line 144 or use environment variable:
-
-```bash
-export FRED_API_KEY="your_key_here"
-```
 
 ### Run the Full Pipeline
 
@@ -452,7 +442,6 @@ This project builds on established research in empirical asset pricing and facto
 - **Kozak, S., Nagel, S., & Santosh, S. (2020).** *Shrinking the cross-section*. Journal of Financial Economics, 135(2), 271–292.
 - **Malkiel, B. G. (2003).** *The efficient market hypothesis and its critics*. Journal of Economic Perspectives, 17(1), 59–82.
 - **Fama, E. F. (1970).** *Efficient capital markets: A review of theory and empirical work*. Journal of Finance, 25(2), 383–417.
-- **Federal Reserve Bank of St. Louis. (2025).** Federal Reserve Economic Data (FRED). https://fred.stlouisfed.org
 - **Hastie, T., Tibshirani, R., & Friedman, J. (2009).** *The elements of statistical learning* (2nd ed.). Springer.
 - **French, K. R. (2025).** Fama–French data library. https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
 - **Yahoo Finance. (2025).** Yahoo Finance market data. https://finance.yahoo.com
@@ -489,14 +478,11 @@ This project is provided for **educational and academic research purposes only**
 
 - **Code**: Released for non-commercial academic use, without warranty
 - **Fama–French data**: © Eugene F. Fama and Kenneth R. French (academic use)
-- **FRED data**: Public domain (U.S. Government)
 - **Yahoo Finance data**: Subject to Yahoo Finance Terms of Service
 
 ---
 
 ## Disclaimer
-
-This project uses data accessed via the **FRED® API** but is **not endorsed or certified by the Federal Reserve Bank of St. Louis**.
 
 This project is **not investment advice**.
 

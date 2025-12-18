@@ -10,12 +10,12 @@ from sklearn.metrics import mean_squared_error as mse, r2_score as r2, mean_abso
 FACTOR_NAMES = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
 
-class HistoricalMeanBaseline:
+class HistoricalMeanBaseline: # Simple baseline predicting historical mean of each factor
     def __init__(self, factor_names=FACTOR_NAMES):
         self.factor_names = list(factor_names)
         self.means = {}
 
-    def fit(self, y_train: pd.DataFrame):
+    def fit(self, y_train: pd.DataFrame): # Compute historical means from training data
         self.means = {f: y_train[f].mean() for f in self.factor_names}
 
         print("\n" + "=" * 80)
@@ -28,13 +28,13 @@ class HistoricalMeanBaseline:
 
         return self
 
-    def predict(self, X_test: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, X_test: pd.DataFrame) -> pd.DataFrame: # Predict constant historical means
         if not self.means:
             raise ValueError("HistoricalMeanBaseline is not fitted. Call .fit(y_train) first.")
         return pd.DataFrame({f: self.means[f] for f in self.factor_names}, index=X_test.index)
 
 
-class MonteCarloFactorSimulator:
+class MonteCarloFactorSimulator: # Monte Carlo simulator for factor returns
     def __init__(self, n_simulations=10000, random_seed=42, factor_names=FACTOR_NAMES):
         self.n_simulations = int(n_simulations)
         self.random_seed = int(random_seed)
@@ -63,7 +63,7 @@ class MonteCarloFactorSimulator:
 
         return self
 
-    def _chol(self) -> np.ndarray:
+    def _chol(self) -> np.ndarray: # Compute Cholesky decomposition of correlation matrix
         if self.correlations is None:
             raise ValueError("MonteCarloFactorSimulator is not fitted. Call .fit(y_train) first.")
 
@@ -104,6 +104,7 @@ class MonteCarloFactorSimulator:
         return sims
 
     def predict(self, X_test: pd.DataFrame, ml_predictions: pd.DataFrame | None = None) -> pd.DataFrame:
+        # Return mean predictions over simulations
         sims = self.simulate(len(X_test), ml_predictions)
         return pd.DataFrame({f: sims[f].mean(axis=0) for f in self.factor_names}, index=X_test.index)
 
@@ -114,7 +115,7 @@ class MonteCarloFactorSimulator:
         confidence_level: float = 0.95,
     ) -> pd.DataFrame:
         sims = self.simulate(len(X_test), ml_predictions)
-
+        # Calculate percentiles for intervals
         alpha = 1.0 - float(confidence_level)
         lo_pct, hi_pct = (alpha / 2.0) * 100.0, (1.0 - alpha / 2.0) * 100.0
 
@@ -132,7 +133,7 @@ class MonteCarloFactorSimulator:
         n_periods: int,
         ml_predictions: pd.DataFrame | None = None,
         save_path: str = "results/monte_carlo_distribution.png",
-    ):
+    ):  # Plot distribution and statistics of Monte Carlo simulations
         sims = self.simulate(int(n_periods), ml_predictions)[factor]
         mode = "ML-Enhanced" if self.is_ml_enhanced else "Historical"
         final = sims[:, -1]
@@ -187,10 +188,10 @@ class MonteCarloFactorSimulator:
 
 
 def compare_historical_mean_vs_ml(hist_mean_baseline, ml_predictor, X_test, y_test, save_dir="results"):
+    # Compare Historical Mean baseline vs ML predictor
     print("\n" + "=" * 80)
     print("COMPARISON: HISTORICAL MEAN vs ML PREDICTIONS")
     print("=" * 80)
-
     hm_pred = hist_mean_baseline.predict(X_test)
     ml_pred = ml_predictor.predict(X_test)
 
@@ -262,6 +263,7 @@ def compare_historical_mean_vs_ml(hist_mean_baseline, ml_predictor, X_test, y_te
 
 
 def _plot_hist_vs_ml_comparison(df, y_test, hm_pred, ml_pred, dates, save_dir):
+    # Plot comparison of Historical Mean vs ML predictions
     os.makedirs(save_dir, exist_ok=True)
 
     x = np.arange(len(df))
@@ -320,6 +322,7 @@ def _plot_hist_vs_ml_comparison(df, y_test, hm_pred, ml_pred, dates, save_dir):
 
 
 def _plot_timeseries(y_test, baseline_pred, ml_pred, dates, save_dir, filename):
+    # Plot time series comparison of Historical Mean vs ML predictions
     fig, ax = plt.subplots(3, 2, figsize=(16, 14))
     ax = ax.ravel()
 
@@ -351,6 +354,7 @@ def _plot_timeseries(y_test, baseline_pred, ml_pred, dates, save_dir, filename):
 
 
 def compare_ml_enhanced_monte_carlo(mc_simulator, ml_predictor, X_test, y_test, save_dir="results"):
+    # Compare ML-Enhanced Monte Carlo vs pure ML predictions
     print("\n" + "=" * 80)
     print("ML-ENHANCED MONTE CARLO ANALYSIS")
     print("=" * 80)
@@ -428,6 +432,7 @@ def compare_ml_enhanced_monte_carlo(mc_simulator, ml_predictor, X_test, y_test, 
 
 
 def _plot_ml_enhanced_intervals(y_test, ml_pred, intervals, dates, save_dir):
+    # Plot time series comparison with ML-Enhanced Monte Carlo intervals
     os.makedirs(save_dir, exist_ok=True)
 
     fig, ax = plt.subplots(3, 2, figsize=(16, 14))

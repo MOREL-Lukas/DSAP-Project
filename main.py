@@ -30,7 +30,7 @@ from src.results_exporter import export_all_results
 FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
 
-def step(i: int, title: str) -> None:
+def step(i: int, title: str) -> None: # Helper to print step headers
     print(f"\n[{i}/9] {title}\n" + "-" * 80)
 
 
@@ -64,7 +64,7 @@ def select_overlay_models(results_df: pd.DataFrame, trained_models: dict):
         overlay_factors.append(fac)
         per_factor_model[fac] = model_obj
 
-        # Factor-specific shrinkage (your original logic)
+        # Factor-specific shrinkage
         per_factor_lambda[fac] = 0.4 if fac == "RMW" else 0.3 if fac == "Mkt-RF" else 0.2
 
     return overlay_factors, per_factor_model, per_factor_lambda
@@ -141,7 +141,6 @@ def main() -> None:
     # -------------------------------------------------------------------------
     step(3, "Building enhanced ML dataset")
     build_enhanced_factor_ml_dataset(
-        fred_api_key="a5f56df9ea6bb6953c807871ae0dac33",
         factor_lags=[1, 2, 3, 6, 12],
         out_path="data/processed/factor_ml_dataset_enhanced.csv",
     )

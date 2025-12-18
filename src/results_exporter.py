@@ -9,7 +9,7 @@ def _compute_backtest_stats(excess: pd.Series, mkt: pd.Series):
     Compute Sharpe, CAPM beta, and CAPM alpha for a backtest series.
     Returns dict with keys: sharpe, beta, alpha_monthly, mean, vol.
     """
-    excess = pd.to_numeric(excess, errors="coerce")
+    excess = pd.to_numeric(excess, errors="coerce") 
     mkt = pd.to_numeric(mkt, errors="coerce")
 
     mu = float(excess.mean())
@@ -18,11 +18,11 @@ def _compute_backtest_stats(excess: pd.Series, mkt: pd.Series):
 
     df = pd.concat([excess.rename("ex"), mkt.rename("mkt")], axis=1).dropna()
     if len(df) > 1:
-        cov = float(np.cov(df["ex"], df["mkt"])[0, 1])
-        var_m = float(np.var(df["mkt"], ddof=1))
-        beta = cov / var_m if var_m > 0 else np.nan
-        mu_m = float(df["mkt"].mean())
-        alpha = mu - beta * mu_m if not np.isnan(beta) else np.nan
+        cov = float(np.cov(df["ex"], df["mkt"])[0, 1]) # covariance between excess returns and market
+        var_m = float(np.var(df["mkt"], ddof=1)) # variance of market returns
+        beta = cov / var_m if var_m > 0 else np.nan # CAPM beta
+        mu_m = float(df["mkt"].mean()) # mean market excess return
+        alpha = mu - beta * mu_m if not np.isnan(beta) else np.nan # CAPM alpha
     else:
         beta = np.nan
         alpha = np.nan

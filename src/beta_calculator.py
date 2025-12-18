@@ -87,7 +87,6 @@ def calculate_capm_beta(stock_excess_returns, market_excess_returns, min_obs=24)
 
 def calculate_all_betas(returns_path="data/processed/sp500_monthly_returns.csv",
                        rf_path="data/processed/Fama_French.csv",
-                       market_ticker="^GSPC",
                        output_path="data/processed/sp500_capm_betas.csv"):
     """
     Calculate CAPM betas for all S&P 500 stocks.

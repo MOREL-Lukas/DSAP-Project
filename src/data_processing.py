@@ -6,11 +6,11 @@ import requests, yfinance as yf
 from tqdm import tqdm
 
 DATA_RAW, DATA_PROC = "data/raw", "data/processed"
-TICKER_FIX = (".", "-")
-BAD_SYMBOLS_DEFAULT = {"WBA"}
+TICKER_FIX = (".", "-") # Replace dots with dashes in tickers
+BAD_SYMBOLS_DEFAULT = {"WBA"} # Known bad symbols for yfinance
 FF5_ZIP = ("https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-           "F-F_Research_Data_5_Factors_2x3_CSV.zip")
-SP500_URL = "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv"
+           "F-F_Research_Data_5_Factors_2x3_CSV.zip") # Fama-French 5-factor data
+SP500_URL = "https://datahub.io/core/s-and-p-500-companies/r/constituents.csv" # S&P 500 companies
 
 
 def _mk(*paths): [os.makedirs(p, exist_ok=True) for p in paths]
@@ -115,7 +115,7 @@ def classify_sp500_factors(tickers, force_recompute=False,
                            output_path=f"{DATA_PROC}/sp500_ff5_classifications.csv",
                            failed_path=f"{DATA_PROC}/fundamentals_failed.csv",
                            blacklist=None, max_retries=4, backoff_base=2.0, polite_sleep=(0.05, 0.15)):
-    """Approx FF5-style classification using yfinance fundamentals with cache + retry/backoff."""
+    """Approx FF5-style classification using yfinance fundamentals with cache + retry/backoff to reduce load and failures."""
     _mk(DATA_PROC)
     blacklist = BAD_SYMBOLS_DEFAULT if blacklist is None else set(blacklist)
     tickers = [t for t in tickers if t not in blacklist]
@@ -131,7 +131,7 @@ def classify_sp500_factors(tickers, force_recompute=False,
     to_fetch = [t for t in tickers if t not in cached_tickers]
     if cached_df is not None and not to_fetch: return cached_df
 
-    def fetch_one(t):
+    def fetch_one(t): # Fetch fundamentals for one ticker with retries + backoff
         last = None
         for attempt in range(1, max_retries + 1):
             try:
@@ -148,25 +148,25 @@ def classify_sp500_factors(tickers, force_recompute=False,
         return dict(Ticker=t, ME=np.nan, PB=np.nan, ROE=np.nan, RevGrowth=np.nan, error=last or "unknown")
 
     rows, failed = [], []
-    for t in tqdm(to_fetch, desc="Fetching fundamentals", unit="ticker"):
+    for t in tqdm(to_fetch, desc="Fetching fundamentals", unit="ticker"): # Fetch each ticker
         r = fetch_one(t)
         (failed if r.get("error") else rows).append(r)
         time.sleep(random.uniform(*polite_sleep))
 
-    fetched = pd.DataFrame(rows, columns=["Ticker", "ME", "PB", "ROE", "RevGrowth"])
+    fetched = pd.DataFrame(rows, columns=["Ticker", "ME", "PB", "ROE", "RevGrowth"]) 
     if failed:
         _save(pd.DataFrame(failed), failed_path, index=False)
         print(f"Warning: {len(failed)} tickers failed fundamentals fetch. See {failed_path}")
 
     merged = pd.concat([cached_df, fetched], ignore_index=True) if (cached_df is not None and not cached_df.empty) else fetched
     merged = merged.drop_duplicates(subset=["Ticker"], keep="first").dropna(subset=["ME"])
-    merged["PB"] = merged["PB"].replace(0, np.nan)
+    merged["PB"] = merged["PB"].replace(0, np.nan) 
     merged["BM_proxy"] = 1.0 / merged["PB"]
 
-    med = lambda s: s.median(skipna=True)
-    size_th, bm_th, roe_th, inv_th = med(merged["ME"]), med(merged["BM_proxy"]), med(merged["ROE"]), med(merged["RevGrowth"])
-
-    merged["Size"] = np.where(merged["ME"] <= size_th, "Small", "Big")
+    med = lambda s: s.median(skipna=True) # Helper to compute median while skipping NaNs
+    size_th, bm_th, roe_th, inv_th = med(merged["ME"]), med(merged["BM_proxy"]), med(merged["ROE"]), med(merged["RevGrowth"]) # Thresholds
+    # Classify based on thresholds
+    merged["Size"] = np.where(merged["ME"] <= size_th, "Small", "Big") 
     merged["Value"] = np.where(merged["BM_proxy"] >= bm_th, "High", "Low")
     merged["Profitability"] = np.where(merged["ROE"] >= roe_th, "Robust", "Weak")
     merged["Investment"] = np.where(merged["RevGrowth"] <= inv_th, "Conservative", "Aggressive")
@@ -192,7 +192,7 @@ def build_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_returns.csv
     feats["ret_all_dispersion"] = rets.quantile(0.9, axis=1) - rets.quantile(0.1, axis=1)
     feats["ret_pos_ratio"] = (rets > 0).mean(axis=1)
 
-    def grp(col, a, b, name):
+    def grp(col, a, b, name): # Helper to compute group returns and proxies
         A, B = classes.index[classes[col] == a], classes.index[classes[col] == b]
         if len(A) and len(B):
             feats[f"ret_{a.lower()}"] = rets[A].mean(axis=1)
@@ -208,7 +208,7 @@ def build_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_returns.csv
     ds = feats.join(ff, how="inner").sort_index()
 
     factors = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
-    ds[factors] = ds[factors].shift(-1) # Predict next month's factors
+    ds[factors] = ds[factors].shift(-1) # Lag factors by 1 month for t+1 prediction
     ds = ds.dropna(subset=factors)
     _save(ds, out_path, index=True)
     return ds
@@ -239,7 +239,7 @@ def add_market_conditions(dataset: pd.DataFrame):
     return dataset
 
 
-def add_macro_features(dataset: pd.DataFrame, fred_api_key=None):
+def add_macro_features(dataset: pd.DataFrame):
     """Add minimal macro features via yfinance: VIX + Oil."""
     start, end = dataset.index.min(), dataset.index.max() + pd.offsets.Day(31)
 
@@ -262,7 +262,7 @@ def build_enhanced_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_re
                                      class_path=f"{DATA_PROC}/sp500_ff5_classifications.csv",
                                      factor_path=f"{DATA_PROC}/Fama_French.csv",
                                      out_path=f"{DATA_PROC}/factor_ml_dataset_enhanced.csv",
-                                     fred_api_key=None, factor_lags=(3, 6, 12)):
+                                     factor_lags=(1, 2, 3, 6, 12)):
     """Enhanced dataset with lagged factors, market conditions, and macro features."""
     tmp = out_path.replace(".csv", "_temp.csv")
     build_factor_ml_dataset(returns_path=returns_path, class_path=class_path, factor_path=factor_path, out_path=tmp)
@@ -275,7 +275,7 @@ def build_enhanced_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_re
     ds = ds.join(ff_hist, how="left")
     ds = add_lagged_factors(ds, list(ff_hist.columns), factor_lags).drop(columns=list(ff_hist.columns), errors="ignore")
     ds = add_market_conditions(ds)
-    ds = add_macro_features(ds, fred_api_key=fred_api_key)
+    ds = add_macro_features(ds)
     ds = ds.dropna(subset=targets)
 
     _save(ds, out_path, index=True)
