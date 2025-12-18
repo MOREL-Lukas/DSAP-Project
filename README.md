@@ -336,12 +336,22 @@ export FRED_API_KEY="your_key_here"
 python main.py
 ```
 
-**Expected Runtime:** 5-10 minutes (includes data download, ML training, backtesting)
+**Expected Runtime:** 30-60 minutes (includes data download, ML training, backtesting)
 
 **Output Files:**
 - `results/pipeline_summary.txt` - Executive summary
 - `results/complete_results.xlsx` - Detailed tables
 - `results/*.png` - Visualization plots
+
+### Run Tests Only
+
+```bash
+pytest tests/ -v
+```
+
+**Expected Output:** `28 passed in 1.39s`
+
+---
 
 ## Scientific Contribution
 
