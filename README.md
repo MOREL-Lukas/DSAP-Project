@@ -7,7 +7,18 @@
 
 ## Overview
 
-This project implements a **full end-to-end quantitative research pipeline** for the Fama–French Five-Factor model. It combines historical factor data, S&P 500 stock returns, macroeconomic indicators, and machine-learning techniques to evaluate **whether factor returns are predictable** and **how such information should (or should not) be used in portfolio construction**.
+This project implements a **full end-to-end quantitative research pipeline** for the Fama–French Five-Factor model.
+$$R_{i,t} - R_{f,t}
+=
+\alpha_i
++ \beta_{i,\mathrm{MKT}} \left( R_{m,t} - R_{f,t} \right)
++ \beta_{i,\mathrm{SMB}} \,\mathrm{SMB}_t
++ \beta_{i,\mathrm{HML}} \,\mathrm{HML}_t
++ \beta_{i,\mathrm{RMW}} \,\mathrm{RMW}_t
++ \beta_{i,\mathrm{CMA}} \,\mathrm{CMA}_t
++ \varepsilon_{i,t}.
+$$
+ It combines historical factor data, S&P 500 stock returns, macroeconomic indicators, and machine-learning techniques to evaluate **whether factor returns are predictable** and **how such information should (or should not) be used in portfolio construction**.
 
 The core result is deliberately *scientifically conservative*:
 
@@ -35,7 +46,7 @@ However, the project also shows that:
 - **4 out of 5 factors (Mkt‑RF, SMB, HML, CMA)** show **no robust out‑of‑sample predictability**.
 - **RMW (Profitability)** is the *only* factor with **positive and stable test‑set R²**, consistent with its slow‑moving economic nature.
 - Complex models (Random Forest, Gradient Boosting) exhibit **validation–test collapse**, highlighting regime sensitivity and overfitting risk.
-- A profitability factor tilted portfolio can preserve alpha and sharpe ratio while decreasing market beta
+- A profitability factor tilted diversified portfolio can preserve alpha and sharpe ratio while decreasing market beta.
 **Conclusion:** Monthly factor returns are close to a random walk, consistent with the Efficient Market Hypothesis.
 
 ---
