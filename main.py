@@ -1,4 +1,6 @@
 import pandas as pd
+import subprocess
+import sys
 
 from src.data_processing import (
     load_sp500_companies,
@@ -66,6 +68,51 @@ def select_overlay_models(results_df: pd.DataFrame, trained_models: dict):
         per_factor_lambda[fac] = 0.4 if fac == "RMW" else 0.3 if fac == "Mkt-RF" else 0.2
 
     return overlay_factors, per_factor_model, per_factor_lambda
+
+
+def run_tests():
+    """Prompt user to run tests and execute if desired."""
+    print("\n" + "=" * 80)
+    print("TEST SUITE")
+    print("=" * 80)
+    print("\nWould you like to run the test suite? [Y/n]: ", end='', flush=True)
+    
+    try:
+        response = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nSkipping tests.")
+        return
+    
+    if response in ['n', 'no']:
+        print("Tests skipped.")
+        return
+    
+    # Default is yes (empty input or 'y' or 'yes')
+    if response in ['', 'y', 'yes']:
+        print("\n" + "-" * 80)
+        print("Running: pytest tests/ -v")
+        print("-" * 80 + "\n")
+        
+        try:
+            result = subprocess.run(
+                ['pytest', 'tests/', '-v'],
+                cwd='.',
+                check=False
+            )
+            
+            print("\n" + "=" * 80)
+            if result.returncode == 0:
+                print("✅ All tests passed!")
+            else:
+                print(f"❌ Some tests failed (exit code: {result.returncode})")
+            print("=" * 80)
+            
+        except FileNotFoundError:
+            print("Error: pytest not found. Install with: pip install pytest pytest-cov")
+        except Exception as e:
+            print(f"Error running tests: {e}")
+    else:
+        print("Invalid input. Tests skipped.")
 
 
 def main() -> None:
@@ -159,7 +206,7 @@ def main() -> None:
 
     ff5_equal_weight = build_equal_weight_portfolio(
         betas_df=ff5_betas_df,
-        min_r_squared=0.0,  # optionally set 0.15 if you want to mirror your “valid beta” quality idea
+        min_r_squared=0.0,
         save_path="data/processed/ff5_equal_weight_weights.csv",
     )
 
@@ -300,6 +347,11 @@ def main() -> None:
     )
 
     print("\n✅ PIPELINE COMPLETE")
+    
+    # -------------------------------------------------------------------------
+    # PROMPT FOR TESTS
+    # -------------------------------------------------------------------------
+    run_tests()
 
 
 if __name__ == "__main__":

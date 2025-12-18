@@ -195,8 +195,17 @@ DSAP-Project/
 │   ├── monte_carlo.py       # Simulation & uncertainty
 │   ├── portfolio_optimizer.py
 │   └── results_exporter.py
+├── test/                     # Pytest scripts
+│   ├── conftest.py
+│   ├── README.md
+│   ├── test_beta_calculator.py
+│   ├── test_monte_carlo.py 
+│   └── test_portfolio_optimizer.py
+│
+├── AI_USAGE.md
 ├── environment.yml
 ├── main.py                  # Full pipeline entry point
+├── pytest.ini               # Pytest file
 └── README.md
 ```
 

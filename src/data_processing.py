@@ -180,7 +180,7 @@ def build_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_returns.csv
                             class_path=f"{DATA_PROC}/sp500_ff5_classifications.csv",
                             factor_path=f"{DATA_PROC}/Fama_French.csv",
                             out_path=f"{DATA_PROC}/factor_ml_dataset.csv"):
-    """Monthly dataset for predicting 6-month ahead (t+6) FF5 factor returns."""
+    """Monthly dataset for predicting 1-month ahead (t+1) FF5 factor returns."""
     rets = _read_csv(returns_path, parse_dates=["Date"]).set_index("Date").sort_index()
     classes = _read_csv(class_path).set_index("Ticker")
     common = sorted(set(rets.columns) & set(classes.index))
