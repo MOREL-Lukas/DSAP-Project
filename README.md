@@ -8,6 +8,7 @@
 ## Overview
 
 This project implements a **full end-to-end quantitative research pipeline** for the Fama–French Five-Factor model.
+
 $$R_{i,t} - R_{f,t}
 =
 \alpha_i
@@ -18,6 +19,7 @@ $$R_{i,t} - R_{f,t}
 + \beta_{i,\mathrm{CMA}} \,\mathrm{CMA}_t
 + \varepsilon_{i,t}.
 $$
+
  It combines historical factor data, S&P 500 stock returns, macroeconomic indicators, and machine-learning techniques to evaluate **whether factor returns are predictable** and **how such information should (or should not) be used in portfolio construction**.
 
 The core result is deliberately *scientifically conservative*:
