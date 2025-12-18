@@ -390,7 +390,7 @@ Key dependencies include:
 python main.py
 ```
 
-**Expected Runtime:** 30-60 minutes (includes data download, ML training, backtesting)
+**Expected Runtime:** 7-10 minutes (includes data download, ML training, backtesting)
 
 **Output Files:**
 - `results/pipeline_summary.txt` - Executive summary

@@ -127,7 +127,7 @@ def main() -> None:
     step(1, "Loading S&P 500 data and Fama-French factors")
     load_sp500_companies()
     load_rf()
-    load_sp500_monthly_returns("1990-01-01", "2025-12-01")
+    load_sp500_monthly_returns("1990-01-01", "2025-12-01") # Fixed date range for reproducibility
 
     # -------------------------------------------------------------------------
     # 2) Cross-sectional classifications
