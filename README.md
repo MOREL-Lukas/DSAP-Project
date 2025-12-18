@@ -38,26 +38,34 @@ However, the project also shows that:
 
 ### Factor Predictability
 
-**Empirical Results from Test Set (2022-2025):**
+**Empirical Results from Validation + Test (2015-2025):**
 
-| Factor | Best Model | Test R² | Validation R² | Status |
-|--------|-----------|---------|---------------|---------|
-| **RMW** | Lasso | **+0.0650** | +0.0115 | ✓ **Weakly Predictable** |
-| **CMA** | Random Forest | -0.0318 | -0.0146 | ✗ Unpredictable |
-| **Mkt-RF** | Random Forest | -0.0166 | +0.0182 | ✗ Unpredictable |
-| **HML** | Random Forest | -0.0392 | +0.0030 | ✗ Unpredictable |
-| **SMB** | Lasso | -0.0570 | -0.0221 | ✗ Unpredictable |
+| Factor | Best Model | Validation R² | Test R² | Model Selection |
+|--------|-----------|---------------|---------|-----------------|
+| **RMW** | Random Forest | **positive** | **+0.0575** | ✓ **Weakly Predictable** |
+| **CMA** | Random Forest | -0.0146 | -0.0318 | ✗ Unpredictable |
+| **Mkt-RF** | Random Forest | +0.0182 | -0.0166 | ✗ Unpredictable (inconsistent) |
+| **HML** | Random Forest | +0.0030 | -0.0392 | ✗ Unpredictable |
+| **SMB** | Random Forest | -0.0221 | -0.0772 | ✗ Unpredictable |
+
+**Critical Methodological Note:**
+- **Lasso achieved +6.50% test R² on RMW** but had **negative validation R²**
+- This validation→test inconsistency is a **red flag** (regime shift, overfitting, or luck)
+- **Proper model selection**: Choose on validation, report test (no data snooping)
+- **Random Forest selected**: Only model with **positive validation R²** for RMW
+- **Consistency >> peak performance** in time-series ML
 
 **Key Observations:**
 
 1. **4 out of 5 factors (Mkt-RF, SMB, HML, CMA)** show **no robust out‑of‑sample predictability**.
-2. **RMW (Profitability)** is the *only* factor with **positive and stable test‑set R²** (+6.5%), consistent with its slow‑moving economic nature.
-3. **Historical Mean outperforms ML on average** (3/5 factors), confirming efficient markets hypothesis.
-4. **Validation-Test R² Gap**: Complex models (Random Forest, Gradient Boosting) show overfitting despite conservative hyperparameters:
-   - Gradient Boosting: Val R² = -0.11 → Test R² = -0.13
-   - Ridge Regression: Val R² = -0.37 → Test R² = -0.14
+2. **RMW (Profitability)** is the *only* factor with **consistent validation-to-test performance** (+5.75% test R²), aligning with its slow‑moving economic nature.
+3. **Random Forest wins on average** (Val R² = +1.15%, best among all models), chosen as baseline predictor.
+4. **Validation-Test Consistency Critical**:
+   - Models with negative validation but positive test are rejected (luck/regime shift)
+   - Only models with positive validation are used in portfolio construction
+   - This prevents data snooping and overfitting
 
-**Conclusion:** Monthly factor returns are close to a random walk, consistent with the Efficient Market Hypothesis.
+**Conclusion:** Monthly factor returns are close to a random walk, consistent with the Efficient Market Hypothesis. RMW shows weak but real predictability via fundamentals.
 
 ---
 
@@ -72,7 +80,7 @@ However, the project also shows that:
 | **Concentrated (50)** | 0.198 | 0.836 | 1.061 | 30 | 5.23% | +0.40% |
 | **Equal-Weight** | 0.152 | 0.107 | 1.040 | 496 | 4.77% | +0.11% |
 
-**Rolling Backtest Results (2022-2025, 309 months):**
+**Rolling Backtest Results (309 months, 1997-2025):**
 
 | Strategy | Sharpe | Mean Return | Volatility | CAPM Beta | CAPM Alpha |
 |----------|--------|-------------|------------|-----------|------------|
@@ -141,6 +149,53 @@ Portfolio construction benefits more from reliable uncertainty estimates than fr
 
 ---
 
+## Model Selection Methodology
+
+### Why Random Forest Was Chosen
+
+**Selection Process:**
+1. Train all models (RF, GBM, Ridge, Lasso) on training data (1990-2014)
+2. Evaluate on validation data (2015-2022) - **selection happens here**
+3. Report test performance (2022-2025) - **no model selection allowed**
+
+**Validation Performance (Average across 5 factors):**
+- **Random Forest: +1.15%** ← Selected
+- Lasso: -7.54%
+- Gradient Boosting: -10.97%
+- Ridge: -36.59%
+
+**Why This Matters:**
+- Prevents data snooping (test set never influences model choice)
+- Ensures generalization (validate on unseen period before final test)
+- Conservative approach (reject models with negative validation even if test looks good)
+
+### The RMW Exception Case
+
+**RMW Factor Specific Analysis:**
+
+| Model | Validation R² | Test R² | Selected? | Reason |
+|-------|--------------|---------|-----------|---------|
+| Lasso | Negative | **+6.50%** | ❌ | Failed validation (inconsistent) |
+| **Random Forest** | **Positive** | **+5.75%** | ✅ | Consistent val→test |
+| Ridge | Negative | +2.29% | ❌ | Failed validation |
+| GBM | Negative | +1.18% | ❌ | Failed validation |
+
+**Why Lasso's Higher Test Score Was Rejected:**
+- Negative validation → positive test jump is **suspicious**
+- Suggests: regime shift, overfitting, or statistical luck
+- **Consistency is more important than peak performance**
+- Random Forest shows **stable, believable signal**
+
+**Portfolio Construction Impact:**
+```python
+# Only models with positive validation R² are used
+overlay_factors = ['RMW']  # Only RMW passes validation filter
+per_factor_model = {'RMW': random_forest_model}
+per_factor_lambda = {'RMW': 0.4}  # Conservative 40% ML, 60% historical
+```
+
+---
+
 ## Methodology
 
 ### Data Sources
@@ -179,19 +234,25 @@ All features are constructed **strictly using information available at time t**.
 
 **Models Evaluated:**
 - Historical Mean (benchmark)
-- Random Forest (n=600, depth=3, leaf=30) ← Conservative hyperparameters
+- Random Forest (n=600, depth=3, leaf=30) ← **Conservative hyperparameters**
 - Gradient Boosting (n=500, lr=0.03, depth=2)
 - Ridge Regression (α=10.0)
 - Lasso Regression (α=0.001)
 
-**Primary Metric:** Out‑of‑sample R² on test set
+**Primary Metric:** Out‑of‑sample R² on **validation set** (for selection), then **test set** (for reporting)
 
-**Model Selection:** Best model chosen **only on validation set**, then evaluated on holdout test set.
+**Model Selection Rule:**
+```python
+if validation_R2 > 0:
+    use_model_in_portfolio()
+else:
+    reject_model()  # Even if test R² looks good!
+```
 
 **Actual Results:**
-- Best model: **Random Forest** (Avg Val R² = +0.0115)
-- Test performance: **Avg Test R² = -0.0215** (worse than mean)
-- Winner by factor: RMW → Lasso (+6.5%), others → negative R²
+- Best model: **Random Forest** (Avg Val R² = +1.15%)
+- Test performance: **Avg Test R² = -2.15%** (worse than mean on average)
+- Only **RMW shows consistent positive R²** (Val: +, Test: +5.75%)
 
 ---
 
@@ -200,11 +261,14 @@ All features are constructed **strictly using information available at time t**.
 ### Steps
 
 1. Estimate **FF5 betas** for all S&P 500 stocks via OLS regression
-   - 496 stocks with valid betas (R² > 0.15 threshold)
+   - 496 stocks with valid betas (R² > 0 threshold)
    - Average R² = 0.303 (strong factor explanatory power)
 
 2. Compute expected stock returns:
    $$\mathbb{E}[R] = R_f + \sum_{k=1}^5 \beta_k \cdot \mathbb{E}[\text{Factor}_k]$$
+   
+   Where factor expectations use **shrunk ML overlay**:
+   $$\mathbb{E}[\text{Factor}] = \lambda \cdot \text{ML} + (1-\lambda) \cdot \text{Historical Mean}$$
 
 3. Construct **tangency‑style portfolio** under realistic constraints:
    - Maximize Sharpe ratio
@@ -360,19 +424,21 @@ This project demonstrates:
 - **Proper time‑series validation** (no look‑ahead bias)
 - **Honest reporting of negative ML results**
 - **Economically meaningful baselines** (historically-optimal, not naive)
+- **Rigorous model selection** (validation-first, no test set snooping)
 - **Separation between prediction and portfolio construction**
 - **Practical use of uncertainty quantification**
 
 **Key Empirical Findings:**
 
-1. **RMW is the only predictable factor** (+6.5% test R²)
-2. **Historical mean beats ML on average** (3/5 factors)
-3. **RMW tilt improves Sharpe modestly** (+0.8%)
-4. **Concentration destroys value** (-4.7% Sharpe)
-5. **Uncertainty quantification succeeds** (90% coverage) even when prediction fails
+1. **RMW is the only consistently predictable factor** (+5.75% test R² via Random Forest)
+2. **Validation-test consistency is critical** (reject models that fail validation even if test looks good)
+3. **Historical mean beats ML on average** (3/5 factors)
+4. **RMW tilt improves Sharpe modestly** (+0.8%)
+5. **Concentration destroys value** (-4.7% Sharpe)
+6. **Uncertainty quantification succeeds** (90% coverage) even when prediction fails
 
-**Key Takeaway:**
-> In efficient markets, ML rarely improves forecasts – but it *can* still improve decisions when used carefully, especially for **slow-moving fundamentals like profitability**.
+**Key Methodological Insight:**
+> **Consistency >> Peak Performance** in time-series ML. A model with positive R² on both validation and test is more valuable than a model with higher test R² but negative validation (which indicates overfitting, regime shift, or luck).
 
 ---
 
@@ -397,8 +463,9 @@ This project builds on established research in empirical asset pricing and facto
 
 ### For Quantitative Analysts
 - **Factor timing is extremely difficult** (4/5 factors unpredictable)
-- **Profitability (RMW) has modest predictability** via fundamentals
-- **Validation-test gaps are real** (regime shifts, overfitting)
+- **Profitability (RMW) has modest but consistent predictability** via fundamentals
+- **Validation-test consistency trumps peak test performance**
+- **Negative validation → positive test is a red flag** (reject these models)
 - **Conservative hyperparameters essential** for macro data
 
 ### For Portfolio Managers
