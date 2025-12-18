@@ -42,14 +42,14 @@ However, the project also shows that:
 
 | Factor | Best Model | Validation R² | Test R² | Model Selection |
 |--------|-----------|---------------|---------|-----------------|
-| **RMW** | Random Forest | **+0.0614** | **+0.0577** | ✓ **Weakly Predictable** |
-| **CMA** | Random Forest | +0.0004 | -0.0326 | ✗ Unpredictable |
-| **Mkt-RF** | Random Forest | -0.0120 | -0.0170 | ✗ Unpredictable  |
-| **HML** | Random Forest | +0.0270 | -0.0391 | ✗ Unpredictable |
-| **SMB** | Random Forest | -0.0167 | -0.0762 | ✗ Unpredictable |
+| **RMW** | Random Forest | **+0.059** | **+0.057** | ✓ **Weakly Predictable** |
+| **CMA** | Random Forest | +0.001 | -0.032 | ✗ Unpredictable |
+| **Mkt-RF** | Random Forest | -0.013 | -0.013 | ✗ Unpredictable  |
+| **HML** | Random Forest | +0.028 | -0.038 | ✗ Unpredictable |
+| **SMB** | Random Forest | -0.017 | -0.076 | ✗ Unpredictable |
 
 **Critical Methodological Note:**
-- **Lasso achieved the best test R² on RMW with +6.50% ** but had **negative validation R²**
+- **Lasso achieved the best test R² on RMW with +6.20% ** but had **negative validation R²**
 - This validation→test inconsistency is a **red flag** (regime shift, overfitting, or luck)
 - **Proper model selection**: Choose on validation, report test (no data snooping)
 - **Random Forest selected**: Only model with **positive validation R²** for RMW
@@ -58,7 +58,7 @@ However, the project also shows that:
 **Key Observations:**
 
 1. **4 out of 5 factors (Mkt-RF, SMB, HML, CMA)** show **no robust out‑of‑sample predictability**.
-2. **RMW (Profitability)** is the *only* factor with **consistent validation-to-test performance** (+5.78% test R²), aligning with its slow‑moving economic nature.
+2. **RMW (Profitability)** is the *only* factor with **consistent validation-to-test performance** (+5.7% test R²), aligning with its slow‑moving economic nature.
 3. **Random Forest wins on average** (Val R² = +1.15%, best among all models), chosen as baseline predictor.
 4. **Validation-Test Consistency Critical**:
    - Models with negative validation but positive test are rejected (luck/regime shift)
@@ -176,7 +176,7 @@ Portfolio construction benefits more from reliable uncertainty estimates than fr
 | Model | Validation R² | Test R² | Selected? | Reason |
 |-------|--------------|---------|-----------|---------|
 | Lasso | Negative | **+6.50%** | ❌ | Failed validation (inconsistent) |
-| **Random Forest** | **Positive** | **+5.75%** | ✅ | Consistent val→test |
+| **Random Forest** | **Positive** | **+5.7%** | ✅ | Consistent val→test |
 | Ridge | Negative | +2.29% | ❌ | Failed validation |
 | GBM | Negative | +1.18% | ❌ | Failed validation |
 
@@ -252,7 +252,7 @@ else:
 **Actual Results:**
 - Best model: **Random Forest** (Avg Val R² = +1.15%)
 - Test performance: **Avg Test R² = -2.15%** (worse than mean on average)
-- Only **RMW shows consistent positive R²** (Val: +, Test: +5.75%)
+- Only **RMW shows consistent positive R²** (Val: +5.9%, Test: +5.7%)
 
 ---
 
@@ -420,7 +420,7 @@ This project demonstrates:
 
 **Key Empirical Findings:**
 
-1. **RMW is the only consistently predictable factor** (+5.75% test R² via Random Forest)
+1. **RMW is the only consistently predictable factor** (+5.7% test R² via Random Forest)
 2. **Validation-test consistency is critical** (reject models that fail validation even if test looks good)
 3. **Historical mean beats ML on average** (3/5 factors)
 4. **RMW tilt improves Sharpe modestly** (+0.8%)
