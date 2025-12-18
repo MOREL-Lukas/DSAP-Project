@@ -35,7 +35,7 @@ However, the project also shows that:
 - **4 out of 5 factors (Mkt‑RF, SMB, HML, CMA)** show **no robust out‑of‑sample predictability**.
 - **RMW (Profitability)** is the *only* factor with **positive and stable test‑set R²**, consistent with its slow‑moving economic nature.
 - Complex models (Random Forest, Gradient Boosting) exhibit **validation–test collapse**, highlighting regime sensitivity and overfitting risk.
-
+- A profitability factor tilted portfolio can preserve alpha and sharpe ratio while decreasing market beta
 **Conclusion:** Monthly factor returns are close to a random walk, consistent with the Efficient Market Hypothesis.
 
 ---
@@ -147,10 +147,12 @@ This demonstrates that **risk estimation can succeed even when prediction fails*
 1. Estimate **FF5 betas** for all S&P 500 stocks via OLS
 2. Compute expected stock returns as:
    
-   \[ \mathbb{E}[R] = B \, \mu_f \]
+   $$
+   \mathbb{E}[R] = B\,\mu_f
+   $$
 
 3. Construct a **tangency‑style portfolio** under realistic constraints
-4. Optionally apply a **post‑optimization RMW tilt**
+4. Apply a **post‑optimization RMW tilt**
 5. Evaluate via rolling out‑of‑sample backtests
 
 ---
