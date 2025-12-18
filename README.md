@@ -9,14 +9,15 @@
 
 This project implements a **full end-to-end quantitative research pipeline** for the Fama–French Five-Factor model.
 
-$$R_{i,t} - R_{f,t}
+$$
+R_{i,t} - R_{f,t}
 =
 \alpha_i
 + \beta_{i,\mathrm{MKT}} \left( R_{m,t} - R_{f,t} \right)
-+ \beta_{i,\mathrm{SMB}} \,\mathrm{SMB}_t
-+ \beta_{i,\mathrm{HML}} \,\mathrm{HML}_t
-+ \beta_{i,\mathrm{RMW}} \,\mathrm{RMW}_t
-+ \beta_{i,\mathrm{CMA}} \,\mathrm{CMA}_t
++ \beta_{i,\mathrm{SMB}}\,\mathrm{SMB}_t
++ \beta_{i,\mathrm{HML}}\,\mathrm{HML}_t
++ \beta_{i,\mathrm{RMW}}\,\mathrm{RMW}_t
++ \beta_{i,\mathrm{CMA}}\,\mathrm{CMA}_t
 + \varepsilon_{i,t}.
 $$
 
