@@ -42,14 +42,14 @@ However, the project also shows that:
 
 | Factor | Best Model | Validation R² | Test R² | Model Selection |
 |--------|-----------|---------------|---------|-----------------|
-| **RMW** | Random Forest | **positive** | **+0.0575** | ✓ **Weakly Predictable** |
-| **CMA** | Random Forest | -0.0146 | -0.0318 | ✗ Unpredictable |
-| **Mkt-RF** | Random Forest | +0.0182 | -0.0166 | ✗ Unpredictable (inconsistent) |
-| **HML** | Random Forest | +0.0030 | -0.0392 | ✗ Unpredictable |
-| **SMB** | Random Forest | -0.0221 | -0.0772 | ✗ Unpredictable |
+| **RMW** | Random Forest | **+0.0614** | **+0.0577** | ✓ **Weakly Predictable** |
+| **CMA** | Random Forest | +0.0004 | -0.0326 | ✗ Unpredictable |
+| **Mkt-RF** | Random Forest | -0.0120 | -0.0170 | ✗ Unpredictable  |
+| **HML** | Random Forest | +0.0270 | -0.0391 | ✗ Unpredictable |
+| **SMB** | Random Forest | -0.0167 | -0.0762 | ✗ Unpredictable |
 
 **Critical Methodological Note:**
-- **Lasso achieved +6.50% test R² on RMW** but had **negative validation R²**
+- **Lasso achieved the best test R² on RMW with +6.50% ** but had **negative validation R²**
 - This validation→test inconsistency is a **red flag** (regime shift, overfitting, or luck)
 - **Proper model selection**: Choose on validation, report test (no data snooping)
 - **Random Forest selected**: Only model with **positive validation R²** for RMW
@@ -58,7 +58,7 @@ However, the project also shows that:
 **Key Observations:**
 
 1. **4 out of 5 factors (Mkt-RF, SMB, HML, CMA)** show **no robust out‑of‑sample predictability**.
-2. **RMW (Profitability)** is the *only* factor with **consistent validation-to-test performance** (+5.75% test R²), aligning with its slow‑moving economic nature.
+2. **RMW (Profitability)** is the *only* factor with **consistent validation-to-test performance** (+5.78% test R²), aligning with its slow‑moving economic nature.
 3. **Random Forest wins on average** (Val R² = +1.15%, best among all models), chosen as baseline predictor.
 4. **Validation-Test Consistency Critical**:
    - Models with negative validation but positive test are rejected (luck/regime shift)
