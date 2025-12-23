@@ -323,15 +323,6 @@ The pipeline uses **automatic raw data caching** for reproducibility:
 - **Subsequent runs:** Uses cached data (no downloads) → identical results
 - **To refresh:** Delete raw files and run again
 
-**Console Output When Using Cache:**
-```
-Using cached FF5 raw data from data/raw/French_Library_data.csv
-Using cached yfinance data from data/raw/sp500_raw_yfinance.pkl
-Using cached fundamentals from data/raw/sp500_fundamentals_raw.csv
-Using cached ^VIX data from data/raw/vix_raw.csv
-Using cached CL=F data from data/raw/oil_raw.csv
-```
-
 ### Fixed Random Seeds
 
 All randomness is controlled for reproducibility:
@@ -378,12 +369,6 @@ The optimized portfolios achieve similar returns with **16% lower market risk**,
 - Numerical stability checks (symmetry, positive definiteness)
 - Reproducibility validation (seeded randomness)
 - Domain constraints (weights sum to 1, non-negative)
-
-**Test Output:**
-```
-============================== 28 passed in 1.36s ==============================
-✅ All tests passed!
-```
 
 ---
 
@@ -455,26 +440,6 @@ python main.py
 **Expected Runtime:** 
 - **First run (downloads data):** 7-10 minutes
 - **Subsequent runs (uses cache):** 3-4 minutes
-
-**Console Output:**
-```
-================================================================================
-FAMA-FRENCH 5-FACTOR PREDICTION PIPELINE
-Testing: Baseline vs RMW Tilt vs Concentration
-================================================================================
-
-[1/9] Loading S&P 500 data and Fama-French factors
-[2/9] Classifying stocks by FF5 factors
-[3/9] Building enhanced ML dataset
-[4/9] Training baseline ML model
-[5/9] Model comparison and overlay selection
-[6/9] Baseline and Monte Carlo
-[7/9] Betas and portfolio construction (3 strategies)
-[8/9] Rolling backtest (baseline strategy)
-[9/9] Strategy comparison: Baseline vs Tilt vs Concentration
-
-✅ PIPELINE COMPLETE
-```
 
 **Output Files:**
 - `results/pipeline_summary.txt` - Executive summary
