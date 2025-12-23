@@ -256,7 +256,7 @@ def main() -> None:
         [
             calc_portfolio_stats(ff5_equal_weight, "data/processed/Fama_French.csv", "Equal-Weight"),
             calc_portfolio_stats(ff5_baseline, "data/processed/Fama_French.csv", "Baseline (no tilt)"),
-            calc_portfolio_stats(ff5_tilt, "data/processed/Fama_French.csv", "RMW Tilt (0.3)"),
+            calc_portfolio_stats(ff5_tilt, "data/processed/Fama_French.csv", "RMW Tilt"),
             calc_portfolio_stats(ff5_concentrated, "data/processed/Fama_French.csv", "RMW-50 (concentrated)"),
         ]
     )
@@ -271,11 +271,11 @@ def main() -> None:
     
     # Highlight key findings
     baseline_sharpe = comparison_df.loc[comparison_df["Strategy"] == "Baseline (no tilt)", "Sharpe"].values[0]
-    tilt_sharpe = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt (0.3)", "Sharpe"].values[0]
+    tilt_sharpe = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt", "Sharpe"].values[0]
     conc_sharpe = comparison_df.loc[comparison_df["Strategy"] == "RMW-50 (concentrated)", "Sharpe"].values[0]
     
     baseline_rmw = comparison_df.loc[comparison_df["Strategy"] == "Baseline (no tilt)", "Portfolio_Beta_RMW"].values[0]
-    tilt_rmw = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt (0.3)", "Portfolio_Beta_RMW"].values[0]
+    tilt_rmw = comparison_df.loc[comparison_df["Strategy"] == "RMW Tilt", "Portfolio_Beta_RMW"].values[0]
     conc_rmw = comparison_df.loc[comparison_df["Strategy"] == "RMW-50 (concentrated)", "Portfolio_Beta_RMW"].values[0]
     
     print("\nKEY FINDINGS:")

@@ -947,7 +947,7 @@ def calc_portfolio_stats(weights_df: pd.DataFrame, ff_path: str, name: str) -> D
         "Short_Exposure": short_exposure,
         "Portfolio_Beta_MKT": beta_mkt,
         "Portfolio_Beta_HML": beta_hml,
-        "Portfolio_Beta_RMW": beta_rmw,  # NEW: Track RMW beta
+        "Portfolio_Beta_RMW": beta_rmw,
         "Avg_R2": avg_r2,
         "Expected_Excess_Return": mu_excess,
         "Volatility": vol,
