@@ -1,3 +1,29 @@
+"""
+Data Processing Module with Automatic Raw Data Caching
+
+SIMPLE CACHING LOGIC:
+- If raw data exists in data/raw/ → use it (fast)
+- If raw data missing → download it once, cache it (slower first time)
+- Just run main.py and it handles everything automatically
+
+RAW DATA FILES (auto-cached):
+1. data/raw/sp500_companies.csv - S&P 500 constituent list
+2. data/raw/sp500_tickers.csv - Just the tickers
+3. data/raw/French_Library_data.csv - Raw Fama-French factor data
+4. data/raw/sp500_raw_yfinance.pkl - Raw price data from yfinance (~50-100MB)
+5. data/raw/sp500_fundamentals_raw.csv - Raw fundamental data (ME, PB, ROE, etc.)
+6. data/raw/vix_raw.csv - Raw VIX data
+7. data/raw/oil_raw.csv - Raw Oil price data
+
+TO GET FRESH DATA:
+Just delete the raw files and run again:
+  rm data/raw/sp500_raw_yfinance.pkl
+  python main.py
+
+FOR REPRODUCIBILITY:
+Keep the data/raw/ directory intact and commit or backup those files.
+"""
+
 import os, time, zipfile, random
 from io import BytesIO
 import numpy as np
@@ -30,16 +56,37 @@ def load_sp500_companies():
     return df
 
 
-def load_rf():
-    """Download Fama-French 5-factor monthly data; return Date, RF, factors, and Mkt."""
-    _mk(DATA_RAW, DATA_PROC)
+def download_ff_raw():
+    """Download raw Fama-French 5-factor data (cache in data/raw)."""
+    _mk(DATA_RAW)
+    raw_path = f"{DATA_RAW}/French_Library_data.csv"
+    
+    # Check cache first
+    if os.path.exists(raw_path):
+        print(f"Using cached FF5 raw data from {raw_path}")
+        return _read_csv(raw_path)
+    
+    # Download if not cached
+    print(f"Downloading FF5 data...")
     r = requests.get(FF5_ZIP); r.raise_for_status()
     with zipfile.ZipFile(BytesIO(r.content)) as z:
         csv_name = next(n for n in z.namelist() if n.lower().endswith(".csv"))
         df = pd.read_csv(z.open(csv_name), skiprows=3)
+    
+    _save(df, raw_path, index=False, float_format="%.6f")
+    print(f"Saved raw FF5 data to {raw_path}")
+    return df
 
-    _save(df, f"{DATA_RAW}/French_Library_data.csv", index=False, float_format="%.6f")
 
+def process_ff_data(raw_df=None):
+    """Process raw Fama-French data into usable format."""
+    _mk(DATA_PROC)
+    
+    # Load raw data if not provided
+    if raw_df is None:
+        raw_df = _read_csv(f"{DATA_RAW}/French_Library_data.csv")
+    
+    df = raw_df.copy()
     df = df.rename(columns={df.columns[0]: "Date"})
     df = df[pd.to_numeric(df["Date"], errors="coerce").notnull()]
     df["Date"] = df["Date"].astype(int).astype(str)
@@ -52,8 +99,13 @@ def load_rf():
 
     rf = df[["Date", *cols, "Mkt"]].copy()
     _save(rf, f"{DATA_PROC}/Fama_French.csv", index=False, float_format="%.6f")
-    print(f"Saved monthly RF + Mkt data to {DATA_PROC}/Fama_French.csv")
     return rf
+
+
+def load_rf():
+    """Download (if needed) and process Fama-French 5-factor data."""
+    raw_df = download_ff_raw()
+    return process_ff_data(raw_df)
 
 
 def extract_monthly_close(raw: pd.DataFrame) -> pd.DataFrame:
@@ -86,16 +138,18 @@ def _download_in_chunks(tickers, start, end, interval="1mo", chunk_size=50, time
     return pd.concat(chunks, axis=1) if chunks else pd.DataFrame()
 
 
-def load_sp500_monthly_returns(start="1990-01-01", end="2025-12-01", force_download=False):
-    """Cache-first: load computed returns or download in chunks with retries/backoff."""
-    _mk(DATA_PROC)
-    returns_path = f"{DATA_PROC}/sp500_monthly_returns.csv"
-    prices_path = f"{DATA_PROC}/sp500_monthly_prices.csv"
-    if (not force_download) and os.path.exists(returns_path):
-        df = _read_csv(returns_path, parse_dates=["Date"]).set_index("Date").sort_index()
-        print(f"Loaded cached monthly returns from {returns_path} (no Yahoo download).")
-        return df
-
+def download_sp500_raw(start="1990-01-01", end="2025-12-01"):
+    """Download raw yfinance data for S&P 500 stocks (cache in data/raw)."""
+    _mk(DATA_RAW)
+    raw_path = f"{DATA_RAW}/sp500_raw_yfinance.pkl"
+    
+    # Check cache first
+    if os.path.exists(raw_path):
+        print(f"Using cached yfinance data from {raw_path}")
+        return pd.read_pickle(raw_path)
+    
+    # Download if not cached
+    print(f"Downloading yfinance data for {start} to {end}...")
     tickers = _read_csv(f"{DATA_RAW}/sp500_tickers.csv", header=None)[0].tolist()
     tickers = [t for t in tickers if t not in BAD_SYMBOLS_DEFAULT]
 
@@ -103,35 +157,66 @@ def load_sp500_monthly_returns(start="1990-01-01", end="2025-12-01", force_downl
                               chunk_size=50, timeout=90, threads=False, max_retries=4, backoff_base=2.0)
     if raw.empty: raise RuntimeError("Yahoo download failed completely (no data returned).")
 
-    prices = extract_monthly_close(raw)
+    # Save raw MultiIndex DataFrame as pickle (preserves structure)
+    raw.to_pickle(raw_path)
+    print(f"Saved raw yfinance data to {raw_path}")
+    return raw
+
+
+def process_sp500_returns(raw_df=None):
+    """Process raw yfinance data into prices and returns."""
+    _mk(DATA_PROC)
+    
+    # Load raw data if not provided
+    if raw_df is None:
+        raw_df = pd.read_pickle(f"{DATA_RAW}/sp500_raw_yfinance.pkl")
+    
+    prices = extract_monthly_close(raw_df)
     rets = compute_monthly_returns(prices).dropna(axis=1, how="all")
     prices.index.name = rets.index.name = "Date"
-    _save(prices, prices_path); _save(rets, returns_path)
+    
+    prices_path = f"{DATA_PROC}/sp500_monthly_prices.csv"
+    returns_path = f"{DATA_PROC}/sp500_monthly_returns.csv"
+    
+    _save(prices, prices_path)
+    _save(rets, returns_path)
     print(f"Saved monthly S&P 500 prices and returns to {DATA_PROC}/")
     return rets
 
 
-def classify_sp500_factors(tickers, force_recompute=False,
-                           output_path=f"{DATA_PROC}/sp500_ff5_classifications.csv",
-                           failed_path=f"{DATA_PROC}/fundamentals_failed.csv",
-                           blacklist=None, max_retries=4, backoff_base=2.0, polite_sleep=(0.05, 0.15)):
-    """Approx FF5-style classification using yfinance fundamentals with cache + retry/backoff to reduce load and failures."""
-    _mk(DATA_PROC)
+def load_sp500_monthly_returns(start="1990-01-01", end="2025-12-01"):
+    """Download (if needed) and process S&P 500 monthly returns."""
+    raw_df = download_sp500_raw(start=start, end=end)
+    return process_sp500_returns(raw_df)
+
+
+def download_fundamentals_raw(tickers, blacklist=None, 
+                             max_retries=4, backoff_base=2.0, polite_sleep=(0.05, 0.15)):
+    """Download raw fundamental data from yfinance (cache in data/raw)."""
+    _mk(DATA_RAW)
+    raw_path = f"{DATA_RAW}/sp500_fundamentals_raw.csv"
+    failed_path = f"{DATA_RAW}/fundamentals_failed.csv"
+    
     blacklist = BAD_SYMBOLS_DEFAULT if blacklist is None else set(blacklist)
     tickers = [t for t in tickers if t not in blacklist]
 
+    # Check cache first
     cached_df, cached_tickers = None, set()
-    if (not force_recompute) and os.path.exists(output_path):
+    if os.path.exists(raw_path):
         try:
-            cached_df = _read_csv(output_path)
+            cached_df = _read_csv(raw_path)
             cached_tickers = set(cached_df["Ticker"].astype(str)) if "Ticker" in cached_df.columns else set()
+            print(f"Using cached fundamentals from {raw_path}")
         except Exception:
             cached_df, cached_tickers = None, set()
 
     to_fetch = [t for t in tickers if t not in cached_tickers]
-    if cached_df is not None and not to_fetch: return cached_df
+    if cached_df is not None and not to_fetch: 
+        return cached_df
 
-    def fetch_one(t): # Fetch fundamentals for one ticker with retries + backoff
+    # Fetch missing tickers
+    print(f"Downloading fundamentals for {len(to_fetch)} tickers...")
+    def fetch_one(t):
         last = None
         for attempt in range(1, max_retries + 1):
             try:
@@ -148,7 +233,7 @@ def classify_sp500_factors(tickers, force_recompute=False,
         return dict(Ticker=t, ME=np.nan, PB=np.nan, ROE=np.nan, RevGrowth=np.nan, error=last or "unknown")
 
     rows, failed = [], []
-    for t in tqdm(to_fetch, desc="Fetching fundamentals", unit="ticker"): # Fetch each ticker
+    for t in tqdm(to_fetch, desc="Fetching fundamentals", unit="ticker"):
         r = fetch_one(t)
         (failed if r.get("error") else rows).append(r)
         time.sleep(random.uniform(*polite_sleep))
@@ -158,22 +243,51 @@ def classify_sp500_factors(tickers, force_recompute=False,
         _save(pd.DataFrame(failed), failed_path, index=False)
         print(f"Warning: {len(failed)} tickers failed fundamentals fetch. See {failed_path}")
 
+    # Merge with cached data
     merged = pd.concat([cached_df, fetched], ignore_index=True) if (cached_df is not None and not cached_df.empty) else fetched
-    merged = merged.drop_duplicates(subset=["Ticker"], keep="first").dropna(subset=["ME"])
-    merged["PB"] = merged["PB"].replace(0, np.nan) 
-    merged["BM_proxy"] = 1.0 / merged["PB"]
-
-    med = lambda s: s.median(skipna=True) # Helper to compute median while skipping NaNs
-    size_th, bm_th, roe_th, inv_th = med(merged["ME"]), med(merged["BM_proxy"]), med(merged["ROE"]), med(merged["RevGrowth"]) # Thresholds
-    # Classify based on thresholds
-    merged["Size"] = np.where(merged["ME"] <= size_th, "Small", "Big") 
-    merged["Value"] = np.where(merged["BM_proxy"] >= bm_th, "High", "Low")
-    merged["Profitability"] = np.where(merged["ROE"] >= roe_th, "Robust", "Weak")
-    merged["Investment"] = np.where(merged["RevGrowth"] <= inv_th, "Conservative", "Aggressive")
-
-    merged = merged.sort_values("Ticker")
-    _save(merged, output_path, index=False)
+    merged = merged.drop_duplicates(subset=["Ticker"], keep="first")
+    
+    _save(merged, raw_path, index=False)
+    print(f"Saved raw fundamentals to {raw_path}")
     return merged
+
+
+def process_fundamentals(raw_df=None):
+    """Process raw fundamentals into FF5 factor classifications."""
+    _mk(DATA_PROC)
+    
+    # Load raw data if not provided
+    if raw_df is None:
+        raw_df = _read_csv(f"{DATA_RAW}/sp500_fundamentals_raw.csv")
+    
+    df = raw_df.copy().dropna(subset=["ME"])
+    df["PB"] = df["PB"].replace(0, np.nan) 
+    df["BM_proxy"] = 1.0 / df["PB"]
+
+    # Calculate thresholds
+    med = lambda s: s.median(skipna=True)
+    size_th, bm_th, roe_th, inv_th = med(df["ME"]), med(df["BM_proxy"]), med(df["ROE"]), med(df["RevGrowth"])
+    
+    # Classify based on thresholds
+    df["Size"] = np.where(df["ME"] <= size_th, "Small", "Big") 
+    df["Value"] = np.where(df["BM_proxy"] >= bm_th, "High", "Low")
+    df["Profitability"] = np.where(df["ROE"] >= roe_th, "Robust", "Weak")
+    df["Investment"] = np.where(df["RevGrowth"] <= inv_th, "Conservative", "Aggressive")
+
+    df = df.sort_values("Ticker")
+    output_path = f"{DATA_PROC}/sp500_ff5_classifications.csv"
+    _save(df, output_path, index=False)
+    return df
+
+
+def classify_sp500_factors(tickers, force_recompute=False,
+                           output_path=f"{DATA_PROC}/sp500_ff5_classifications.csv",
+                           failed_path=f"{DATA_RAW}/fundamentals_failed.csv",
+                           blacklist=None, max_retries=4, backoff_base=2.0, polite_sleep=(0.05, 0.15)):
+    """Download (if needed) and process FF5-style classifications using yfinance fundamentals."""
+    raw_df = download_fundamentals_raw(tickers, blacklist=blacklist,
+                                      max_retries=max_retries, backoff_base=backoff_base, polite_sleep=polite_sleep)
+    return process_fundamentals(raw_df)
 
 
 def build_factor_ml_dataset(returns_path=f"{DATA_PROC}/sp500_monthly_returns.csv",
@@ -239,22 +353,80 @@ def add_market_conditions(dataset: pd.DataFrame):
     return dataset
 
 
+def download_macro_raw(dataset):
+    """Download raw macro data (VIX, Oil) from yfinance (cache in data/raw)."""
+    _mk(DATA_RAW)
+    vix_path = f"{DATA_RAW}/vix_raw.csv"
+    oil_path = f"{DATA_RAW}/oil_raw.csv"
+    
+    start, end = dataset.index.min(), dataset.index.max() + pd.offsets.Day(31)
+    
+    def fetch_series(ticker, cache_path):
+        # Check cache first
+        if os.path.exists(cache_path):
+            print(f"Using cached {ticker} data from {cache_path}")
+            try:
+                # Read CSV - yfinance saves with 3 header rows: Price,Close / Ticker,^VIX / Date,
+                # Skip first 2 rows, use row 3 as header (which is "Date,")
+                df = pd.read_csv(cache_path, skiprows=2, index_col=0)
+                
+                # Convert index to datetime
+                df.index = pd.to_datetime(df.index)
+                
+                # Get the Close column (unnamed column after Date)
+                if len(df.columns) > 0:
+                    series = df.iloc[:, 0]  # First data column
+                    series = series.dropna()  # Remove any NaN values
+                    if len(series) > 0:
+                        return series
+                
+                print(f"Warning: No valid data in cached {ticker}, will re-download")
+                os.remove(cache_path)
+                        
+            except Exception as e:
+                print(f"Warning: Error reading cached {ticker}: {e}, will re-download")
+                if os.path.exists(cache_path):
+                    os.remove(cache_path)
+        
+        # Download if not cached or read failed
+        print(f"Downloading {ticker} data...")
+        try:
+            df = yf.download(ticker, start=start, end=end, interval="1mo", progress=False)
+            if not df.empty:
+                df = df[['Close']].copy()
+                df.to_csv(cache_path)
+                print(f"Saved {ticker} data to {cache_path}")
+                return df['Close']
+        except Exception as e:
+            print(f"Warning: Failed to download {ticker}: {e}")
+        return pd.Series(dtype=float)
+    
+    vix_series = fetch_series("^VIX", vix_path)
+    oil_series = fetch_series("CL=F", oil_path)
+    
+    return vix_series, oil_series
+
+
 def add_macro_features(dataset: pd.DataFrame):
     """Add minimal macro features via yfinance: VIX + Oil."""
-    start, end = dataset.index.min(), dataset.index.max() + pd.offsets.Day(31)
-
-    def _series(tkr, col, chg):
-        try:
-            s = yf.download(tkr, start=start, end=end, interval="1mo", progress=False)["Close"]
-            if s.empty: return pd.Series(np.nan, index=dataset.index), pd.Series(np.nan, index=dataset.index)
-            s.index = s.index.to_period("M").to_timestamp()
-            s = s.reindex(dataset.index, method="ffill")
-            return s, s.pct_change()
-        except Exception:
-            return pd.Series(np.nan, index=dataset.index), pd.Series(np.nan, index=dataset.index)
-
-    dataset["vix"], dataset["vix_change"] = _series("^VIX", "vix", "vix_change")
-    dataset["oil_price"], dataset["oil_change"] = _series("CL=F", "oil_price", "oil_change")
+    
+    def process_series(s, dataset_index):
+        if s.empty:
+            return pd.Series(np.nan, index=dataset_index), pd.Series(np.nan, index=dataset_index)
+        
+        # Ensure the series has a DatetimeIndex
+        if not isinstance(s.index, pd.DatetimeIndex):
+            s.index = pd.to_datetime(s.index)
+        
+        s.index = s.index.to_period("M").to_timestamp()
+        s = s.reindex(dataset_index, method="ffill")
+        return s, s.pct_change()
+    
+    vix_series, oil_series = download_macro_raw(dataset)
+    
+    dataset["vix"], dataset["vix_change"] = process_series(vix_series, dataset.index)
+    dataset["oil_price"], dataset["oil_change"] = process_series(oil_series, dataset.index)
+    
     return dataset.ffill().bfill()
 
 

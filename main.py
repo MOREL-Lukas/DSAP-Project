@@ -74,46 +74,19 @@ def run_tests():
     """Prompt user to run tests and execute if desired."""
     print("\n" + "=" * 80)
     print("TEST SUITE")
-    print("=" * 80)
-    print("\nWould you like to run the test suite? [Y/n]: ", end='', flush=True)
-    
-    try:
-        response = input().strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print("\nSkipping tests.")
-        return
-    
-    if response in ['n', 'no']:
-        print("Tests skipped.")
-        return
-    
-    # Default is yes (empty input or 'y' or 'yes')
-    if response in ['', 'y', 'yes']:
-        print("\n" + "-" * 80)
-        print("Running: pytest tests/ -v")
-        print("-" * 80 + "\n")
-        
-        try:
-            result = subprocess.run(
-                ['pytest', 'tests/', '-v'],
-                cwd='.',
-                check=False
-            )
-            
-            print("\n" + "=" * 80)
-            if result.returncode == 0:
-                print("✅ All tests passed!")
-            else:
-                print(f"❌ Some tests failed (exit code: {result.returncode})")
-            print("=" * 80)
-            
-        except FileNotFoundError:
-            print("Error: pytest not found. Install with: pip install pytest pytest-cov")
-        except Exception as e:
-            print(f"Error running tests: {e}")
+    print("Running: pytest tests/ -v")
+    print("-" * 80 + "\n")
+    result = subprocess.run(
+        ['pytest', 'tests/', '-v'],
+        cwd='.',
+        check=False
+    )
+    print("\n" + "=" * 80)
+    if result.returncode == 0:
+        print("✅ All tests passed!")
     else:
-        print("Invalid input. Tests skipped.")
-
+        print(f"❌ Some tests failed (exit code: {result.returncode})")
+    print("=" * 80)
 
 def main() -> None:
     print("=" * 80)
