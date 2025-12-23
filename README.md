@@ -33,7 +33,53 @@ However, the project also shows that:
 3. Does tilting toward profitability (RMW) improve risk‑adjusted returns relative to a rational historical benchmark?
 
 ---
+## How to Run
 
+### Environment Setup
+
+Environment name: **DSAP-Project**
+
+Create and activate the environment:
+
+```bash
+git clone https://github.com/MOREL-Lukas/DSAP-Project.git
+cd DSAP-Project
+conda env create -f environment.yml
+conda activate DSAP-Project
+```
+
+Key dependencies include:
+
+- `python=3.11`
+- `pandas`, `numpy`, `scipy`
+- `scikit-learn`
+- `cvxpy`, `osqp`, `clarabel`
+- `statsmodels`
+- `matplotlib`, `seaborn`
+- `yfinance`
+
+(See `environment.yml` for the complete, pinned dependency list.)
+
+
+### Run the Full Pipeline
+
+```bash
+python main.py
+```
+Cached data are included to ensure reproducibility, as yfinance data can vary over time even when fixed date intervals are used.
+If you want to re-download data, delete the contents of data/raw. Results will change but conclusions should remain identical.
+
+**Expected Runtime:** 
+- **Subsequent runs (uses cache):** 3-4 minutes
+- **First run (downloads data):** 7-10 minutes
+
+**Output Files:**
+- `results/pipeline_summary.txt` - Executive summary
+- `results/complete_results.xlsx` - Detailed tables
+- `results/*.png` - Visualization plots (model comparison, betas, MC intervals)
+- `results/*.csv` - Detailed results (model performance, comparisons, weights)
+
+---
 ## Main Findings (Executive Summary)
 
 ### Factor Predictability
@@ -403,51 +449,7 @@ DSAP-Project/
 
 ---
 
-## How to Run
 
-### Environment Setup
-
-Environment name: **DSAP-Project**
-
-Create and activate the environment:
-
-```bash
-git clone https://github.com/MOREL-Lukas/DSAP-Project.git
-cd DSAP-Project
-conda env create -f environment.yml
-conda activate DSAP-Project
-```
-
-Key dependencies include:
-
-- `python=3.11`
-- `pandas`, `numpy`, `scipy`
-- `scikit-learn`
-- `cvxpy`, `osqp`, `clarabel`
-- `statsmodels`
-- `matplotlib`, `seaborn`
-- `yfinance`
-
-(See `environment.yml` for the complete, pinned dependency list.)
-
-
-### Run the Full Pipeline
-
-```bash
-python main.py
-```
-
-**Expected Runtime:** 
-- **First run (downloads data):** 7-10 minutes
-- **Subsequent runs (uses cache):** 3-4 minutes
-
-**Output Files:**
-- `results/pipeline_summary.txt` - Executive summary
-- `results/complete_results.xlsx` - Detailed tables
-- `results/*.png` - Visualization plots (model comparison, betas, MC intervals)
-- `results/*.csv` - Detailed results (model performance, comparisons, weights)
-
----
 
 ## Scientific Contribution
 
