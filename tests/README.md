@@ -25,7 +25,6 @@ tests/
 **Option 1: Automatic prompt after pipeline**
 ```bash
 python main.py
-# At the end, you'll be prompted: "Would you like to run the test suite? [Y/n]:"
 ```
 
 **Option 2: Direct execution**
