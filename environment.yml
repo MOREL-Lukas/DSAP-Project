@@ -9,6 +9,7 @@ dependencies:
   - attrs=25.4.0=pyhcf101f3_1
   - backports.zstd=1.2.0=py311h6b1f9c4_0
   - beautifulsoup4=4.14.3=pyha770c72_0
+  - black=25.12.0=pyh866005b_0
   - brotli=1.2.0=hed03a55_1
   - brotli-bin=1.2.0=hb03c661_1
   - brotli-python=1.2.0=py311h66f275b_1
@@ -121,6 +122,7 @@ dependencies:
   - matplotlib-base=3.10.8=py311h0f3be63_0
   - multitasking=0.0.12=pyhd8ed1ab_0
   - munkres=1.1.4=pyhd8ed1ab_1
+  - mypy_extensions=1.1.0=pyha770c72_0
   - ncurses=6.5=h2d0b736_3
   - numpy=2.3.5=py311h2e04523_0
   - openjpeg=2.5.4=h55fea9a_0
@@ -130,6 +132,7 @@ dependencies:
   - osqp=1.0.5=np2py311h912ec1f_2
   - packaging=25.0=pyh29332c3_1
   - pandas=2.3.3=py311hed34c8f_2
+  - pathspec=0.12.1=pyhd8ed1ab_1
   - patsy=1.0.2=pyhcf101f3_0
   - pcre2=10.46=h1321c63_0
   - peewee=3.18.3=py311h8e11ec1_0
@@ -153,6 +156,7 @@ dependencies:
   - python-dateutil=2.9.0.post0=pyhe01879c_2
   - python-tzdata=2025.2=pyhd8ed1ab_0
   - python_abi=3.11=8_cp311
+  - pytokens=0.3.0=pyhcf101f3_0
   - pytz=2025.2=pyhd8ed1ab_0
   - qdldl-python=0.1.7.post5=np2py311h912ec1f_3
   - qhull=2020.2=h434a139_5
