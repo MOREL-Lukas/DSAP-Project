@@ -17,7 +17,6 @@ RAW DATA FILES (auto-cached):
 
 TO GET FRESH DATA:
 Just delete the raw files and run again:
-  rm data/raw/sp500_raw_yfinance.pkl
   python main.py
 
 FOR REPRODUCIBILITY:
@@ -45,15 +44,48 @@ def _save(df, path, **kw): _mk(os.path.dirname(path)); df.to_csv(path, **kw); re
 
 
 def load_sp500_companies():
-    """Load S&P 500 company data from DataHub and export tickers + full table."""
-    _mk(f"{DATA_RAW}", f"{DATA_PROC}")
+    """
+    Load S&P 500 company data.
+
+    Cache-first behavior:
+    - If data/raw/sp500_companies.csv exists -> use it (no internet).
+    - If not, download from SP500_URL, normalize tickers, and cache both:
+        * data/raw/sp500_companies.csv
+        * data/raw/sp500_tickers.csv
+    """
+    _mk(DATA_RAW, DATA_PROC)
+    raw_path = f"{DATA_RAW}/sp500_companies.csv"
+    tickers_path = f"{DATA_RAW}/sp500_tickers.csv"
+
+    # 1) Pure cache path (no external calls)
+    if os.path.exists(raw_path):
+        df = _read_csv(raw_path)
+
+        # Normalize ticker symbol format
+        if "Symbol" not in df.columns:
+            raise ValueError("Cached sp500_companies.csv is missing required column 'Symbol'")
+
+        df["Symbol"] = df["Symbol"].astype(str).str.replace(*TICKER_FIX, regex=False)
+
+        # Ensure tickers file also exists and is consistent
+        if not os.path.exists(tickers_path):
+            df["Symbol"].to_csv(tickers_path, index=False, header=False)
+
+        return df
+
+    # 2) If no cache exists, fall back to a single download and cache it
     df = _read_csv(SP500_URL)
-    if "Symbol" not in df.columns: raise ValueError("CSV is missing required columns: {'Symbol'}")
+    if "Symbol" not in df.columns:
+        raise ValueError("Downloaded CSV is missing required column 'Symbol'")
+
     df["Symbol"] = df["Symbol"].str.replace(*TICKER_FIX, regex=False)
-    df["Symbol"].to_csv(f"{DATA_RAW}/sp500_tickers.csv", index=False, header=False)
-    _save(df, f"{DATA_RAW}/sp500_companies.csv", index=False)
-    print(f"Exported {len(df)} companies to {DATA_RAW}/sp500_companies.csv")
+
+    # Cache both full company table and plain tickers list
+    df["Symbol"].to_csv(tickers_path, index=False, header=False)
+    _save(df, raw_path, index=False)
+    print(f"Downloaded and exported {len(df)} companies to {raw_path}")
     return df
+
 
 
 def download_ff_raw():
@@ -192,64 +224,70 @@ def load_sp500_monthly_returns(start="1990-01-01", end="2025-12-01"):
 
 def download_fundamentals_raw(tickers, blacklist=None, 
                              max_retries=4, backoff_base=2.0, polite_sleep=(0.05, 0.15)):
-    """Download raw fundamental data from yfinance (cache in data/raw)."""
+    """
+    Download raw fundamental data from yfinance (cache in data/raw).
+
+    Revised behavior for full offline reproducibility:
+    - If data/raw/sp500_fundamentals_raw.csv exists -> use it as-is (NO external calls).
+    - If not, download fundamentals for the provided tickers once, then cache.
+    - No incremental "top-up" for missing tickers in subsequent runs.
+    """
     _mk(DATA_RAW)
     raw_path = f"{DATA_RAW}/sp500_fundamentals_raw.csv"
     failed_path = f"{DATA_RAW}/fundamentals_failed.csv"
-    
+
+    # 1) Pure cache path: if fundamentals file exists, trust it completely.
+    if os.path.exists(raw_path):
+        print(f"Using cached fundamentals from {raw_path}")
+        return _read_csv(raw_path)
+
+    # 2) First-time download only (one-off)
     blacklist = BAD_SYMBOLS_DEFAULT if blacklist is None else set(blacklist)
     tickers = [t for t in tickers if t not in blacklist]
 
-    # Check cache first
-    cached_df, cached_tickers = None, set()
-    if os.path.exists(raw_path):
-        try:
-            cached_df = _read_csv(raw_path)
-            cached_tickers = set(cached_df["Ticker"].astype(str)) if "Ticker" in cached_df.columns else set()
-            print(f"Using cached fundamentals from {raw_path}")
-        except Exception:
-            cached_df, cached_tickers = None, set()
+    print(f"Downloading fundamentals for {len(tickers)} tickers...")
 
-    to_fetch = [t for t in tickers if t not in cached_tickers]
-    if cached_df is not None and not to_fetch: 
-        return cached_df
-
-    # Fetch missing tickers
-    print(f"Downloading fundamentals for {len(to_fetch)} tickers...")
     def fetch_one(t):
         last = None
         for attempt in range(1, max_retries + 1):
             try:
                 info = yf.Ticker(t).info
-                return dict(Ticker=t,
-                            ME=info.get("marketCap", np.nan),
-                            PB=info.get("priceToBook", np.nan),
-                            ROE=info.get("returnOnEquity", np.nan),
-                            RevGrowth=info.get("revenueGrowth", np.nan),
-                            error="")
+                return dict(
+                    Ticker=t,
+                    ME=info.get("marketCap", np.nan),
+                    PB=info.get("priceToBook", np.nan),
+                    ROE=info.get("returnOnEquity", np.nan),
+                    RevGrowth=info.get("revenueGrowth", np.nan),
+                    error=""
+                )
             except Exception as e:
                 last = str(e)
                 time.sleep((backoff_base ** (attempt - 1)) + random.uniform(0, 0.25))
-        return dict(Ticker=t, ME=np.nan, PB=np.nan, ROE=np.nan, RevGrowth=np.nan, error=last or "unknown")
+        return dict(
+            Ticker=t,
+            ME=np.nan,
+            PB=np.nan,
+            ROE=np.nan,
+            RevGrowth=np.nan,
+            error=last or "unknown"
+        )
 
     rows, failed = [], []
-    for t in tqdm(to_fetch, desc="Fetching fundamentals", unit="ticker"):
+    for t in tqdm(tickers, desc="Fetching fundamentals", unit="ticker"):
         r = fetch_one(t)
         (failed if r.get("error") else rows).append(r)
         time.sleep(random.uniform(*polite_sleep))
 
-    fetched = pd.DataFrame(rows, columns=["Ticker", "ME", "PB", "ROE", "RevGrowth"]) 
+    fetched = pd.DataFrame(rows, columns=["Ticker", "ME", "PB", "ROE", "RevGrowth"])
+
     if failed:
         _save(pd.DataFrame(failed), failed_path, index=False)
         print(f"Warning: {len(failed)} tickers failed fundamentals fetch. See {failed_path}")
 
-    # Merge with cached data
-    merged = pd.concat([cached_df, fetched], ignore_index=True) if (cached_df is not None and not cached_df.empty) else fetched
-    merged = merged.drop_duplicates(subset=["Ticker"], keep="first")
-    
-    _save(merged, raw_path, index=False)
+    # Save one-shot dataset; no incremental augmentation on future runs
+    _save(fetched, raw_path, index=False)
     print(f"Saved raw fundamentals to {raw_path}")
-    return merged
+    return fetched
 
 
 def process_fundamentals(raw_df=None):
@@ -354,56 +392,74 @@ def add_market_conditions(dataset: pd.DataFrame):
 
 
 def download_macro_raw(dataset):
-    """Download raw macro data (VIX, Oil) from yfinance (cache in data/raw)."""
+    """
+    Download raw macro data (VIX, Oil) from yfinance (cache in data/raw).
+
+    Strict offline behavior once cached:
+    - If data/raw/vix_raw.csv or data/raw/oil_raw.csv exist -> use them as-is.
+    - If a cached file is malformed or contains no valid data -> raise RuntimeError
+      (do NOT re-download or delete). User can manually remove file to force a
+      fresh download on the next run.
+    - If the file does not exist at all -> perform a one-time download and cache.
+    """
     _mk(DATA_RAW)
     vix_path = f"{DATA_RAW}/vix_raw.csv"
     oil_path = f"{DATA_RAW}/oil_raw.csv"
-    
+
+    # still compute date range for first-time downloads only
     start, end = dataset.index.min(), dataset.index.max() + pd.offsets.Day(31)
-    
+
     def fetch_series(ticker, cache_path):
-        # Check cache first
+        # 1) Pure cache path: if file exists, use it or fail fast.
         if os.path.exists(cache_path):
             print(f"Using cached {ticker} data from {cache_path}")
             try:
-                # Read CSV - yfinance saves with 3 header rows: Price,Close / Ticker,^VIX / Date,
-                # Skip first 2 rows, use row 3 as header (which is "Date,")
+                # Read CSV - original format: 3 header rows, Date in first column.
                 df = pd.read_csv(cache_path, skiprows=2, index_col=0)
-                
+
                 # Convert index to datetime
                 df.index = pd.to_datetime(df.index)
-                
-                # Get the Close column (unnamed column after Date)
-                if len(df.columns) > 0:
-                    series = df.iloc[:, 0]  # First data column
-                    series = series.dropna()  # Remove any NaN values
-                    if len(series) > 0:
-                        return series
-                
-                print(f"Warning: No valid data in cached {ticker}, will re-download")
-                os.remove(cache_path)
-                        
+
+                # Get the Close column (first data column)
+                if len(df.columns) == 0:
+                    raise RuntimeError(
+                        f"Cached {ticker} file {cache_path} has no data columns."
+                    )
+
+                series = df.iloc[:, 0].dropna()
+                if series.empty:
+                    raise RuntimeError(
+                        f"Cached {ticker} file {cache_path} has no valid (non-NaN) data."
+                    )
+
+                return series
+
             except Exception as e:
-                print(f"Warning: Error reading cached {ticker}: {e}, will re-download")
-                if os.path.exists(cache_path):
-                    os.remove(cache_path)
-        
-        # Download if not cached or read failed
-        print(f"Downloading {ticker} data...")
+                # Do NOT delete or re-download; fail fast for strict offline behavior
+                raise RuntimeError(
+                    f"Error reading cached {ticker} data from {cache_path}: {e}"
+                )
+
+        # 2) First-time download only (no cache present)
+        print(f"Downloading {ticker} data (no cache found at {cache_path})...")
         try:
             df = yf.download(ticker, start=start, end=end, interval="1mo", progress=False)
-            if not df.empty:
-                df = df[['Close']].copy()
-                df.to_csv(cache_path)
-                print(f"Saved {ticker} data to {cache_path}")
-                return df['Close']
+            if df.empty:
+                raise RuntimeError(f"Downloaded {ticker} data is empty.")
+
+            df = df[["Close"]].copy()
+            df.to_csv(cache_path)
+            print(f"Saved {ticker} data to {cache_path}")
+            return df["Close"]
+
         except Exception as e:
-            print(f"Warning: Failed to download {ticker}: {e}")
-        return pd.Series(dtype=float)
-    
+            raise RuntimeError(
+                f"Failed to download {ticker} data for initial cache creation: {e}"
+            )
+
     vix_series = fetch_series("^VIX", vix_path)
     oil_series = fetch_series("CL=F", oil_path)
-    
+
     return vix_series, oil_series
 
 
