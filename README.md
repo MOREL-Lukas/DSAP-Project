@@ -556,4 +556,4 @@ Course: Data Science & Applied Programming
 
 ## Acknowledgments
 
-This project was developed with the assistance of AI tools (ChatGPT, Claude, GitHub Copilot) for debugging, methodological guidance, and code drafting. See `AI_USAGE.md` for full disclosure.
+This project was developed with the assistance of AI tools (ChatGPT, Claude, GitHub Copilot) for debugging, methodological guidance, text and code drafting and refining. See `AI_USAGE.md` for full disclosure.
