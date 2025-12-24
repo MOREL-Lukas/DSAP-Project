@@ -6,7 +6,8 @@ import os
 
 def calculate_excess_returns(returns_df, rf_series):
     """
-    Calculate excess returns for all stocks.
+    Convert raw total returns into excess returns so betas and alphas are
+    estimated in the CAPM-consistent space (R_i - R_f).
     """
     # Align risk-free rate with returns
     rf_aligned = rf_series.reindex(returns_df.index)
@@ -19,7 +20,8 @@ def calculate_excess_returns(returns_df, rf_series):
 
 def calculate_market_excess_return(market_return, rf_series):
     """
-    Calculate market excess return (market risk premium).
+    Derive the market risk premium series used as the sole regressor in
+    CAPM, ensuring rf is aligned with the stock return sample.
     """
     rf_aligned = rf_series.reindex(market_return.index)
     market_excess = market_return - rf_aligned
@@ -29,7 +31,8 @@ def calculate_market_excess_return(market_return, rf_series):
 
 def calculate_capm_beta(stock_excess_returns, market_excess_returns, min_obs=24):
     """
-    Calculate CAPM beta using OLS regression.
+    Estimate a stock's CAPM beta via OLS, enforcing a minimum observation
+    window so the beta is statistically meaningful and not driven by noise.
     """
     # Align data and drop NaN
     data = pd.DataFrame(
@@ -90,7 +93,9 @@ def calculate_all_betas(
     output_path="data/processed/sp500_capm_betas.csv",
 ):
     """
-    Calculate CAPM betas for all S&P 500 stocks.
+    Batch-estimate CAPM betas for the entire S&P 500 universe so downstream
+    reporting and portfolio construction can reuse a single, consistent
+    cross-section of risk estimates.
     """
     # 1) Load stock returns
     returns_df = pd.read_csv(returns_path, parse_dates=["Date"], index_col="Date")

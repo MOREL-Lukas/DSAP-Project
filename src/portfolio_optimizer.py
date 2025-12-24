@@ -140,7 +140,10 @@ def apply_weight_constraints(
     max_short: float = MAX_SHORT,
 ) -> np.ndarray:
     """
-    Clip |w_i|, cap total shorts, renormalize to fully invested (sum=1).
+    Enforce realistic position and leverage limits (per-name caps and
+    short exposure bounds) while keeping the portfolio fully invested.
+    This prevents unstable mean-variance solutions from dominating a
+    few extreme positions.
     """
     w = np.asarray(weights, float).copy()
     n = len(w)
@@ -833,9 +836,9 @@ def backtest_ff5_tangency(
         port_excess = float(np.nansum(w_star * ex_test))
         tilt_excess = float(np.nansum(w_tilt * ex_test))
         finite = np.isfinite(ex_test)
-        ew_excess = float(np.mean(ex_test[finite])) if finite.any() else np.nan
-        # Equal-weight (long-only) on the same valid universe this month
         finite = np.isfinite(ex_test)
+        # Use an equal-weight portfolio on the same investable subset to
+        # provide a simple, implementation-agnostic benchmark each month.
         ew_excess = float(np.mean(ex_test[finite])) if finite.any() else np.nan
         mkt_excess = float(test["Mkt-RF"]) if "Mkt-RF" in test.index else np.nan
 

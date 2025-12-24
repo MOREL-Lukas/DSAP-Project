@@ -6,8 +6,9 @@ from datetime import datetime
 
 def _compute_backtest_stats(excess: pd.Series, mkt: pd.Series):
     """
-    Compute Sharpe, CAPM beta, and CAPM alpha for a backtest series.
-    Returns dict with keys: sharpe, beta, alpha_monthly, mean, vol.
+    Derive a compact set of CAPM-style diagnostics (Sharpe, beta, alpha)
+    so different portfolio backtests can be compared on a common scale
+    without re-running regressions in downstream analysis.
     """
     excess = pd.to_numeric(excess, errors="coerce")
     mkt = pd.to_numeric(mkt, errors="coerce")
@@ -18,13 +19,13 @@ def _compute_backtest_stats(excess: pd.Series, mkt: pd.Series):
 
     df = pd.concat([excess.rename("ex"), mkt.rename("mkt")], axis=1).dropna()
     if len(df) > 1:
-        cov = float(
-            np.cov(df["ex"], df["mkt"])[0, 1]
-        )  # covariance between excess returns and market
-        var_m = float(np.var(df["mkt"], ddof=1))  # variance of market returns
-        beta = cov / var_m if var_m > 0 else np.nan  # CAPM beta
-        mu_m = float(df["mkt"].mean())  # mean market excess return
-        alpha = mu - beta * mu_m if not np.isnan(beta) else np.nan  # CAPM alpha
+        cov = float(np.cov(df["ex"], df["mkt"])[0, 1])
+        var_m = float(np.var(df["mkt"], ddof=1))
+        # Use CAPM moment relationships to back out beta/alpha directly from
+        # sample covariances instead of fitting another regression object.
+        beta = cov / var_m if var_m > 0 else np.nan
+        mu_m = float(df["mkt"].mean())
+        alpha = mu - beta * mu_m if not np.isnan(beta) else np.nan
     else:
         beta = np.nan
         alpha = np.nan
@@ -53,14 +54,16 @@ def export_all_results(
     backtest_results=None,
 ):
     """
-    Export results:
-      - pipeline_summary.txt
-      - complete_results.xlsx
-    Supports backtests containing:
-      - Port_Excess_Return (baseline)
-      - Tilt_Excess_Return (rmw tilt)
-      - EW_Excess_Return (equal weight)
-      - Mkt_RF
+    Consolidate the entire experiment into human-readable summaries and
+    machine-consumable tables so the pipeline can be audited, replicated,
+    and compared against future runs without re-executing the code.
+
+    Outputs:
+      - pipeline_summary.txt  (narrative interpretation + key metrics)
+      - complete_results.xlsx (structured tables for further analysis)
+
+    If backtest series are provided, they are summarized using a unified
+    CAPM-style diagnostic set (Sharpe, beta, alpha, etc.).
     """
     output_dir = "results"
     os.makedirs(output_dir, exist_ok=True)

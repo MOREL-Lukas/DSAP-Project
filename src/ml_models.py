@@ -13,7 +13,11 @@ warnings.filterwarnings("ignore")
 
 
 class FactorPredictor:
-    """Machine Learning model to predict Fama-French 5 factors."""
+    """
+    ML wrapper that predicts Fama-French factors in a way designed to be
+    out-of-sample stable, so its forecasts can be safely used as a modest
+    overlay on top of classical factor models.
+    """
 
     def __init__(self, model_type="random_forest"):
         """
@@ -71,7 +75,9 @@ class FactorPredictor:
 
     def prepare_data(self, dataset_path="data/processed/factor_ml_dataset.csv"):
         """
-        Load and prepare the dataset.
+        Load the engineered factor dataset and enforce a consistent split
+        between features and targets so different model types can be
+        compared on an identical information set.
         """
         df = pd.read_csv(dataset_path, parse_dates=["Date"])
         df = df.set_index("Date").sort_index()
@@ -92,7 +98,10 @@ class FactorPredictor:
     def train_val_test_split_temporal(
         self, X, y, dates, train_ratio=0.7, val_ratio=0.2
     ):
-        """Split data temporally (no shuffling)."""
+        """
+        Perform a strictly chronological train/val/test split to avoid
+        look-ahead bias and mimic a realistic forecasting workflow.
+        """
         n = len(X)
         train_end = int(n * train_ratio)
         val_end = int(n * (train_ratio + val_ratio))
@@ -129,7 +138,11 @@ class FactorPredictor:
         )
 
     def fit(self, X_train, y_train):
-        """Train separate models for each factor."""
+        """
+        Fit one model per factor so each risk premium can have its own
+        mapping from predictors, avoiding cross-factor interference in a
+        multi-output setup.
+        """
         X_train_scaled = self.scaler.fit_transform(X_train)
         print(f"\nTraining {self.model_type} models...")
 
@@ -147,7 +160,10 @@ class FactorPredictor:
         return predictions
 
     def evaluate(self, X_test, y_test, dataset_name="Test"):
-        """Evaluate model performance."""
+        """
+        Report factor-wise error metrics so we can see which premia are
+        genuinely predictable and which behave like noise.
+        """
         y_pred = self.predict(X_test)
         metrics = []
         for factor in self.target_names:
@@ -226,7 +242,11 @@ class FactorPredictor:
         plt.show()
 
     def predict_next_month(self, current_features):
-        """Predict factors for the next month."""
+        """
+        Generate a single-step-ahead factor forecast using the latest
+        available feature row, which then feeds into Monte Carlo and
+        portfolio construction as a forward-looking overlay.
+        """
         if isinstance(current_features, dict):
             current_features = pd.Series(current_features)
         missing = set(self.feature_names) - set(current_features.index)
@@ -452,7 +472,11 @@ def save_detailed_results(
 
 
 def evaluate_all_models(dataset_path="data/processed/factor_ml_dataset_enhanced.csv"):
-    """Complete evaluation pipeline."""
+    """
+    Run the full model-comparison workflow so different algorithms are
+    evaluated on a common temporal split and can be ranked consistently
+    for downstream selection.
+    """
     temp_predictor = FactorPredictor()
     X, y, dates = temp_predictor.prepare_data(dataset_path)
     (

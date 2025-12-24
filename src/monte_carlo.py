@@ -1,5 +1,3 @@
-# src/monte_carlo.py
-
 import os
 import numpy as np
 import pandas as pd
@@ -14,12 +12,21 @@ from sklearn.metrics import (
 FACTOR_NAMES = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
 
-class HistoricalMeanBaseline:  # Simple baseline predicting historical mean of each factor
+class HistoricalMeanBaseline:
+    """
+    Sanity-check benchmark that assumes factors are not predictable:
+    always forecasts the in-sample historical mean for each factor.
+    """
+
     def __init__(self, factor_names=FACTOR_NAMES):
         self.factor_names = list(factor_names)
         self.means = {}
 
-    def fit(self, y_train: pd.DataFrame):  # Compute historical means from training data
+    def fit(self, y_train: pd.DataFrame):
+        """
+        Estimate unconditional factor means on the training window so the baseline
+        reflects a "no skill" investor who only knows long-run averages.
+        """
         self.means = {f: y_train[f].mean() for f in self.factor_names}
 
         print("\n" + "=" * 80)
@@ -32,9 +39,11 @@ class HistoricalMeanBaseline:  # Simple baseline predicting historical mean of e
 
         return self
 
-    def predict(
-        self, X_test: pd.DataFrame
-    ) -> pd.DataFrame:  # Predict constant historical means
+    def predict(self, X_test: pd.DataFrame) -> pd.DataFrame:
+        """
+        Return constant forecasts equal to the training-sample mean, creating a
+        strict null model against which ML and Monte Carlo enhancements are judged.
+        """
         if not self.means:
             raise ValueError(
                 "HistoricalMeanBaseline is not fitted. Call .fit(y_train) first."
@@ -44,7 +53,12 @@ class HistoricalMeanBaseline:  # Simple baseline predicting historical mean of e
         )
 
 
-class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
+class MonteCarloFactorSimulator:
+    """
+    Simulates joint factor paths to stress-test portfolios under the empirical
+    factor distribution, optionally incorporating ML-based time-varying means.
+    """
+
     def __init__(self, n_simulations=10000, random_seed=42, factor_names=FACTOR_NAMES):
         self.n_simulations = int(n_simulations)
         self.random_seed = int(random_seed)
@@ -56,6 +70,10 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         self.is_ml_enhanced = False
 
     def fit(self, y_train: pd.DataFrame):
+        """
+        Fit a joint Gaussian approximation to the historical factor process so
+        simulations reflect observed means, volatilities, and correlations.
+        """
         y = y_train[self.factor_names]
         self.means = y.mean().to_dict()
         self.stds = y.std().to_dict()
@@ -75,9 +93,12 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
 
         return self
 
-    def _chol(
-        self,
-    ) -> np.ndarray:  # Compute Cholesky decomposition of correlation matrix
+    def _chol(self) -> np.ndarray:
+        """
+        Use a Cholesky factor so simulated shocks preserve the historical
+        cross-factor correlation structure; fall back to identity if the
+        sample matrix is not numerically positive definite.
+        """
         if self.correlations is None:
             raise ValueError(
                 "MonteCarloFactorSimulator is not fitted. Call .fit(y_train) first."
@@ -95,8 +116,10 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         self, n_periods: int, ml_predictions: pd.DataFrame | None = None
     ) -> dict:
         """
-        Returns dict factor -> simulations array of shape (S, T).
-        If ml_predictions provided, its per-period values are used as time-varying means.
+        Return a dict mapping factor -> simulations array of shape (S, T).
+
+        If ml_predictions is provided, per-period ML forecasts are used as
+        time-varying means; otherwise we revert to constant historical means.
         """
         if not self.means or not self.stds or self.correlations is None:
             raise ValueError(
@@ -106,7 +129,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         np.random.seed(self.random_seed)
         k = len(self.factor_names)
 
-        # (S, T, K)
+        # (S, T, K) uncorrelated standard normals
         z = np.random.randn(self.n_simulations, n_periods, k)
         # correlate: (S, T, K)
         x = np.einsum("stj,ij->sti", z, self._chol())
@@ -118,6 +141,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
             if self.is_ml_enhanced:
                 if f not in ml_predictions.columns:
                     raise KeyError(f"ml_predictions missing required column: '{f}'")
+                # Use ML forecast as a time-varying mean path
                 mu = ml_predictions[f].to_numpy()[None, :]  # (1, T)
             else:
                 mu = self.means[f]  # scalar
@@ -128,7 +152,10 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
     def predict(
         self, X_test: pd.DataFrame, ml_predictions: pd.DataFrame | None = None
     ) -> pd.DataFrame:
-        # Return mean predictions over simulations
+        """
+        Convert simulated factor paths into point forecasts by averaging across
+        Monte Carlo draws for each horizon.
+        """
         sims = self.simulate(len(X_test), ml_predictions)
         return pd.DataFrame(
             {f: sims[f].mean(axis=0) for f in self.factor_names}, index=X_test.index
@@ -140,8 +167,12 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         ml_predictions: pd.DataFrame | None = None,
         confidence_level: float = 0.95,
     ) -> pd.DataFrame:
+        """
+        Compute symmetric prediction intervals for each factor and horizon so
+        we can quantify uncertainty, not just point forecasts.
+        """
         sims = self.simulate(len(X_test), ml_predictions)
-        # Calculate percentiles for intervals
+
         alpha = 1.0 - float(confidence_level)
         lo_pct, hi_pct = (alpha / 2.0) * 100.0, (1.0 - alpha / 2.0) * 100.0
 
@@ -159,7 +190,12 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         n_periods: int,
         ml_predictions: pd.DataFrame | None = None,
         save_path: str = "results/monte_carlo_distribution.png",
-    ):  # Plot distribution and statistics of Monte Carlo simulations
+    ):
+        """
+        Visualize the simulated factor distribution so we can diagnose tail
+        behavior, path dispersion, and calibration of ML-enhanced vs historical
+        simulations for a single factor.
+        """
         sims = self.simulate(int(n_periods), ml_predictions)[factor]
         mode = "ML-Enhanced" if self.is_ml_enhanced else "Historical"
         final = sims[:, -1]
@@ -167,6 +203,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         fig, ax = plt.subplots(2, 2, figsize=(14, 10))
         ax = ax.ravel()
 
+        # Histogram of terminal outcomes
         ax[0].hist(final, bins=50, alpha=0.7, edgecolor="black")
         m, med = final.mean(), np.median(final)
         ax[0].axvline(m, linestyle="--", linewidth=2, label=f"Mean: {m * 100:.2f}%")
@@ -181,6 +218,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         ax[0].legend()
         ax[0].grid(True, alpha=0.3)
 
+        # Sample paths vs mean path
         n_paths = min(100, self.n_simulations)
         ax[1].plot(np.arange(n_periods), sims[:n_paths].T, alpha=0.1)
         ax[1].plot(
@@ -195,6 +233,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         ax[1].legend()
         ax[1].grid(True, alpha=0.3)
 
+        # Percentile bands over time
         pcts = [5, 25, 50, 75, 95]
         pv = np.percentile(sims, pcts, axis=0)
         labels = ["5th", "25th", "50th (Median)", "75th", "95th"]
@@ -214,6 +253,7 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
         ax[2].legend()
         ax[2].grid(True, alpha=0.3)
 
+        # Q-Q plot vs Normal to check distributional assumptions
         stats.probplot(final, dist="norm", plot=ax[3])
         ax[3].set(title=f"{factor} - Q-Q Plot (Normality Check)")
         ax[3].grid(True, alpha=0.3)
@@ -228,7 +268,10 @@ class MonteCarloFactorSimulator:  # Monte Carlo simulator for factor returns
 def compare_historical_mean_vs_ml(
     hist_mean_baseline, ml_predictor, X_test, y_test, save_dir="results"
 ):
-    # Compare Historical Mean baseline vs ML predictor
+    """
+    Quantify whether the ML model adds forecasting value beyond a naive
+    constant-mean benchmark, using identical test data and error metrics.
+    """
     print("\n" + "=" * 80)
     print("COMPARISON: HISTORICAL MEAN vs ML PREDICTIONS")
     print("=" * 80)
@@ -315,7 +358,10 @@ def compare_historical_mean_vs_ml(
 
 
 def _plot_hist_vs_ml_comparison(df, y_test, hm_pred, ml_pred, dates, save_dir):
-    # Plot comparison of Historical Mean vs ML predictions
+    """
+    Visualize how the ML model compares to the historical-mean baseline across
+    factors, both in terms of summary statistics and time-series behavior.
+    """
     os.makedirs(save_dir, exist_ok=True)
 
     x = np.arange(len(df))
@@ -398,7 +444,10 @@ def _plot_hist_vs_ml_comparison(df, y_test, hm_pred, ml_pred, dates, save_dir):
 
 
 def _plot_timeseries(y_test, baseline_pred, ml_pred, dates, save_dir, filename):
-    # Plot time series comparison of Historical Mean vs ML predictions
+    """
+    Show how ML predictions and the historical mean track actual factor returns
+    over time for each factor, highlighting R2 differences inline.
+    """
     fig, ax = plt.subplots(3, 2, figsize=(16, 14))
     ax = ax.ravel()
 
@@ -431,7 +480,8 @@ def _plot_timeseries(y_test, baseline_pred, ml_pred, dates, save_dir, filename):
         a.text(
             0.02,
             0.98,
-            f"R2 (HM): {r2(y_test[f], baseline_pred[f]):.3f}\nR2 (ML): {r2(y_test[f], ml_pred[f]):.3f}",
+            f"R2 (HM): {r2(y_test[f], baseline_pred[f]):.3f}\n"
+            f"R2 (ML): {r2(y_test[f], ml_pred[f]):.3f}",
             transform=a.transAxes,
             va="top",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
@@ -448,7 +498,10 @@ def _plot_timeseries(y_test, baseline_pred, ml_pred, dates, save_dir, filename):
 def compare_ml_enhanced_monte_carlo(
     mc_simulator, ml_predictor, X_test, y_test, save_dir="results"
 ):
-    # Compare ML-Enhanced Monte Carlo vs pure ML predictions
+    """
+    Compare pure ML forecasts against ML-Enhanced Monte Carlo, which adds
+    distributional information (intervals) on top of the ML mean path.
+    """
     print("\n" + "=" * 80)
     print("ML-ENHANCED MONTE CARLO ANALYSIS")
     print("=" * 80)
@@ -547,7 +600,10 @@ def compare_ml_enhanced_monte_carlo(
 
 
 def _plot_ml_enhanced_intervals(y_test, ml_pred, intervals, dates, save_dir):
-    # Plot time series comparison with ML-Enhanced Monte Carlo intervals
+    """
+    Plot ML forecasts together with Monte Carlo-derived confidence bands so we
+    can visually judge both calibration and dispersion over time.
+    """
     os.makedirs(save_dir, exist_ok=True)
 
     fig, ax = plt.subplots(3, 2, figsize=(16, 14))

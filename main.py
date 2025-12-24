@@ -12,7 +12,11 @@ from src.results_exporter import export_all_results
 FACTOR_COLS = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
 
 
-def step(i: int, title: str) -> None:  # Helper to print step headers
+def step(i: int, title: str) -> None:
+    """
+    Centralized step logging so pipeline runs produce consistent, readable
+    console output across experiments and machines.
+    """
     print(f"\n[{i}/9] {title}\n" + "-" * 80)
 
 

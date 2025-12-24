@@ -101,7 +101,11 @@ def load_sp500_companies():
 
 
 def download_ff_raw():
-    """Download raw Fama-French 5-factor data (cache in data/raw)."""
+    """
+    Fetch the canonical Fama-French 5-factor library once and cache it
+    locally so subsequent experiments can run fully offline and against
+    a stable historical dataset.
+    """
     _mk(DATA_RAW)
     raw_path = f"{DATA_RAW}/French_Library_data.csv"
 
@@ -124,7 +128,11 @@ def download_ff_raw():
 
 
 def process_ff_data(raw_df=None):
-    """Process raw Fama-French data into usable format."""
+    """
+    Transform the raw Fama-French library into a clean monthly panel in
+    decimal returns, providing a single source of truth for all factor-
+    based calculations in the project.
+    """
     _mk(DATA_PROC)
 
     # Load raw data if not provided
@@ -181,7 +189,11 @@ def _download_in_chunks(
     max_retries=4,
     backoff_base=2.0,
 ):
-    """Download yfinance data in chunks with retries + exponential backoff."""
+    """
+    Download large yfinance universes in manageable batches with retries
+    and exponential backoff to reduce rate-limit issues and intermittent
+    network failures.
+    """
     chunks = []
     for i in tqdm(
         range(0, len(tickers), chunk_size), desc="Downloading Yahoo data", unit="chunk"
@@ -216,7 +228,11 @@ def _download_in_chunks(
 
 
 def download_sp500_raw(start="1990-01-01", end="2025-12-01"):
-    """Download raw yfinance data for S&P 500 stocks (cache in data/raw)."""
+    """
+    Materialize the full S&P 500 price history into a local pickle once
+    so that all subsequent runs read from disk instead of repeatedly
+    hitting the yfinance API.
+    """
     _mk(DATA_RAW)
     raw_path = f"{DATA_RAW}/sp500_raw_yfinance.pkl"
 
@@ -251,7 +267,10 @@ def download_sp500_raw(start="1990-01-01", end="2025-12-01"):
 
 
 def process_sp500_returns(raw_df=None):
-    """Process raw yfinance data into prices and returns."""
+    """
+    Standardize yfinance output into a tidy monthly price/return panel
+    that can be reused consistently by beta estimation, ML, and backtests.
+    """
     _mk(DATA_PROC)
 
     # Load raw data if not provided
